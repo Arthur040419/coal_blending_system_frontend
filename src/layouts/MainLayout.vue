@@ -29,8 +29,18 @@
           <span class="page-title">{{ currentTitle }}</span>
         </div>
         <div class="header-right">
-          <el-tag type="info" size="small">演示环境</el-tag>
-          <span class="user-line">管理员</span>
+          <el-tag type="info" size="small">{{ userRole }}</el-tag>
+          <el-dropdown trigger="click" @command="onUserCommand">
+            <span class="user-line user-trigger">
+              {{ displayName() }}
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </el-header>
       <el-main class="layout-main">
@@ -42,7 +52,20 @@
 
 <script setup>
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { ArrowDown } from '@element-plus/icons-vue'
+import { auth, clearAuthSession, displayName } from '@/stores/auth'
+
+const router = useRouter()
+
+const userRole = computed(() => auth.user?.role || '用户')
+
+function onUserCommand(cmd) {
+  if (cmd === 'logout') {
+    clearAuthSession()
+    router.replace({ name: 'Login' })
+  }
+}
 
 const menuItems = [
   { path: '/dashboard', label: '首页总览' },
@@ -55,6 +78,7 @@ const menuItems = [
   { path: '/cases', label: '历史案例' },
   { path: '/plan-history', label: '方案追溯' },
   { path: '/model-config', label: '模型配置' },
+  { path: '/users', label: '用户管理' },
 ]
 
 const route = useRoute()
@@ -127,6 +151,17 @@ const currentTitle = computed(() => route.meta.title || '首页总览')
   gap: 12px;
   font-size: 13px;
   color: #64748b;
+}
+
+.user-trigger {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.user-trigger:hover {
+  color: #0f172a;
 }
 
 .layout-main {

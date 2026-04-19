@@ -79,6 +79,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { generateBlendPlan } from '@/api/blendPlan'
 import { fetchOrderPage } from '@/api/order'
+import { auth } from '@/stores/auth'
 
 const orderLoading = ref(false)
 const orders = ref([])
@@ -113,6 +114,7 @@ async function onGenerate() {
   try {
     result.value = await generateBlendPlan({
       orderId: selectedOrder.value.id,
+      createBy: auth.userId ?? undefined,
     })
   } finally {
     generating.value = false

@@ -14,6 +14,8 @@ npm run dev
 
 浏览器访问终端提示的本地地址（一般为 `http://127.0.0.1:5173`）。
 
+未登录时会自动进入登录页。初始化数据库脚本中的默认账号为 **`admin` / `123456`**（见 `coal_blending_system/db/*.sql`）。登录成功后，前端会在请求头附带 **`X-User-Id`**，与后端 `AuthController` 的约定一致。
+
 ### npm install 报 `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`
 
 说明本机 Node 不信任访问 `registry.npmjs.org` 时看到的 HTTPS 证书链，常见于公司/校园网 SSL 检查、代理或本机缺少中间证书。

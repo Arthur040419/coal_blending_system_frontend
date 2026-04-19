@@ -1,10 +1,18 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import MainLayout from '@/layouts/MainLayout.vue'
+import { auth, ensureAuthHydrated } from '@/stores/auth'
 
 const routes = [
   {
+    path: '/login',
+    name: 'Login',
+    component: () => import('@/views/login/Login.vue'),
+    meta: { public: true, title: '登录' },
+  },
+  {
     path: '/',
     component: MainLayout,
+    meta: { requiresAuth: true },
     redirect: '/dashboard',
     children: [
       {
@@ -28,44 +36,50 @@ const routes = [
       {
         path: 'coal-types',
         name: 'CoalTypes',
-        component: () => import('@/views/placeholder/ModulePlaceholder.vue'),
-        meta: { title: '煤种管理', apiHint: '/coalType/page' },
+        component: () => import('@/views/coal-type/CoalTypeList.vue'),
+        meta: { title: '煤种管理' },
       },
       {
         path: 'coal-quality',
         name: 'CoalQuality',
-        component: () => import('@/views/placeholder/ModulePlaceholder.vue'),
-        meta: { title: '煤质管理', apiHint: '/coalQuality/page' },
+        component: () => import('@/views/coal-quality/CoalQualityList.vue'),
+        meta: { title: '煤质管理' },
       },
       {
         path: 'inventory',
         name: 'Inventory',
-        component: () => import('@/views/placeholder/ModulePlaceholder.vue'),
-        meta: { title: '库存管理', apiHint: '/inventory/page' },
+        component: () => import('@/views/inventory/InventoryList.vue'),
+        meta: { title: '库存管理' },
       },
       {
         path: 'rules',
         name: 'Rules',
-        component: () => import('@/views/placeholder/ModulePlaceholder.vue'),
-        meta: { title: '规则知识', apiHint: '/ruleKnowledge/page' },
+        component: () => import('@/views/rule/RuleKnowledgeList.vue'),
+        meta: { title: '规则知识' },
       },
       {
         path: 'cases',
         name: 'Cases',
-        component: () => import('@/views/placeholder/ModulePlaceholder.vue'),
-        meta: { title: '历史案例', apiHint: '/caseSample/page' },
+        component: () => import('@/views/case/CaseSampleList.vue'),
+        meta: { title: '历史案例' },
       },
       {
         path: 'plan-history',
         name: 'PlanHistory',
-        component: () => import('@/views/placeholder/ModulePlaceholder.vue'),
-        meta: { title: '方案追溯', apiHint: '/blendPlan/history' },
+        component: () => import('@/views/plan/PlanHistoryList.vue'),
+        meta: { title: '方案追溯' },
       },
       {
         path: 'model-config',
         name: 'ModelConfig',
-        component: () => import('@/views/placeholder/ModulePlaceholder.vue'),
-        meta: { title: '模型配置', apiHint: '/modelConfig/page' },
+        component: () => import('@/views/model/ModelConfigList.vue'),
+        meta: { title: '模型配置' },
+      },
+      {
+        path: 'users',
+        name: 'Users',
+        component: () => import('@/views/user/UserList.vue'),
+        meta: { title: '用户管理' },
       },
     ],
   },
@@ -74,6 +88,22 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
+})
+
+router.beforeEach((to, _from, next) => {
+  ensureAuthHydrated()
+  if (to.meta.public) {
+    if (auth.userId && to.name === 'Login') {
+      const raw = to.query.redirect
+      const redirect = typeof raw === 'string' && raw.startsWith('/') && !raw.startsWith('//') ? raw : '/dashboard'
+      return next(redirect)
+    }
+    return next()
+  }
+  if (to.matched.some((r) => r.meta.requiresAuth) && !auth.userId) {
+    return next({ name: 'Login', query: { redirect: to.fullPath } })
+  }
+  return next()
 })
 
 router.afterEach((to) => {
