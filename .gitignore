@@ -19,6 +19,10 @@
 *.tar.gz
 *.rar
 
+# Node / Vite
+node_modules/
+dist/
+
 # IDEA
 .idea/
 .vscode/
