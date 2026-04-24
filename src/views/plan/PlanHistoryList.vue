@@ -73,7 +73,7 @@
 
     <el-drawer v-model="drawerVisible" title="方案详情" size="640px" destroy-on-close>
       <el-skeleton v-if="detailLoading" :rows="10" animated />
-      <template v-else-if="plan">
+      <div v-else-if="plan" class="drawer-detail-scroll">
         <el-descriptions :column="2" border size="small" class="mb">
           <el-descriptions-item label="方案编号">{{ plan.planCode }}</el-descriptions-item>
           <el-descriptions-item label="订单">{{ orderLabel(plan.orderId) }}</el-descriptions-item>
@@ -81,16 +81,56 @@
           <el-descriptions-item label="总成本">{{ formatMoney(plan.totalCost) }}</el-descriptions-item>
           <el-descriptions-item label="质量分">{{ formatMoney(plan.qualityScore) }}</el-descriptions-item>
           <el-descriptions-item label="成本分">{{ formatMoney(plan.costScore) }}</el-descriptions-item>
+          <el-descriptions-item label="稳定性分">{{ formatMoney(plan.stabilityScore) }}</el-descriptions-item>
           <el-descriptions-item label="综合分">{{ formatMoney(plan.overallScore) }}</el-descriptions-item>
+          <el-descriptions-item label="可行性">
+            <el-tag :type="plan.feasibleFlag === 0 ? 'danger' : 'success'" size="small">
+              {{ plan.feasibleFlag === 0 ? '存在硬约束问题' : '满足硬约束' }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="风险等级">
+            <el-tag :type="riskTagType(plan.riskLevel)" size="small">
+              {{ riskLabel(plan.riskLevel) }}
+            </el-tag>
+          </el-descriptions-item>
           <el-descriptions-item label="生成时间">{{ formatDateTime(plan.createTime) }}</el-descriptions-item>
+          <el-descriptions-item v-if="plan.aiModelName" label="解释模型" :span="2">
+            {{ plan.aiModelName }}
+            <el-tag v-if="plan.aiGenerateFlag === 1" type="success" size="small" class="ml8">大模型</el-tag>
+            <el-tag v-else type="info" size="small" class="ml8">兜底</el-tag>
+          </el-descriptions-item>
         </el-descriptions>
+        <div v-if="plan.constraintSummary" class="mb">
+          <div class="sub">约束校验</div>
+          <div class="text">{{ plan.constraintSummary }}</div>
+        </div>
+        <div v-if="plan.scoreDetail" class="mb">
+          <div class="sub">评分明细</div>
+          <div class="text">{{ plan.scoreDetail }}</div>
+        </div>
         <div v-if="plan.explanation" class="mb">
           <div class="sub">方案说明</div>
-          <p class="text">{{ plan.explanation }}</p>
+          <div class="ai-markdown-scroll">
+            <MarkdownContent :content="plan.explanation" />
+          </div>
+        </div>
+        <div v-if="plan.ruleBasis" class="mb">
+          <div class="sub">规则依据</div>
+          <div class="ai-markdown-scroll">
+            <MarkdownContent :content="plan.ruleBasis" />
+          </div>
         </div>
         <div v-if="plan.riskTip" class="mb">
           <div class="sub">风险提示</div>
-          <p class="text">{{ plan.riskTip }}</p>
+          <div class="ai-markdown-scroll">
+            <MarkdownContent :content="plan.riskTip" />
+          </div>
+        </div>
+        <div v-if="plan.optimizeSuggestion" class="mb">
+          <div class="sub">优化建议</div>
+          <div class="ai-markdown-scroll">
+            <MarkdownContent :content="plan.optimizeSuggestion" />
+          </div>
         </div>
         <div class="sub">配比明细</div>
         <el-table :data="details" border size="small" class="mt">
@@ -105,13 +145,90 @@
           <el-table-column prop="predictedCalorific" label="预测热值" width="90" align="right" />
           <el-table-column prop="unitCost" label="单价" width="90" align="right" />
         </el-table>
-      </template>
+
+        <div class="feedback-head">
+          <div class="sub">执行反馈</div>
+          <el-button type="primary" size="small" @click="openFeedbackCreate">录入反馈</el-button>
+        </div>
+        <el-empty v-if="!feedbackRows.length" description="暂无执行反馈" />
+        <el-table v-else :data="feedbackRows" border size="small" class="mt">
+          <el-table-column prop="executeDate" label="执行日期" width="110" />
+          <el-table-column prop="actualQuantity" label="执行量" width="90" align="right" />
+          <el-table-column prop="actualSulfur" label="实际硫分" width="90" align="right" />
+          <el-table-column prop="actualCalorific" label="实际热值" width="90" align="right" />
+          <el-table-column prop="qualifiedFlag" label="达标" width="80" align="center">
+            <template #default="{ row }">
+              <el-tag :type="row.qualifiedFlag === 1 ? 'success' : 'danger'" size="small">
+                {{ row.qualifiedFlag === 1 ? '达标' : '未达标' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="effectivenessEval" label="评价" width="80" />
+          <el-table-column label="案例回流" width="110" fixed="right">
+            <template #default="{ row }">
+              <el-tag v-if="row.caseGeneratedFlag === 1" type="success" size="small">已回流</el-tag>
+              <el-button v-else link type="primary" @click="onConvertToCase(row)">转案例</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
     </el-drawer>
+
+    <el-dialog v-model="feedbackVisible" title="录入执行反馈" width="680px" destroy-on-close @closed="resetFeedbackForm">
+      <el-form ref="feedbackFormRef" :model="feedbackForm" :rules="feedbackRules" label-width="110px">
+        <el-form-item label="实际执行量" prop="actualQuantity">
+          <el-input-number v-model="feedbackForm.actualQuantity" :min="0" :precision="2" style="width: 220px" />
+        </el-form-item>
+        <el-form-item label="执行日期" prop="executeDate">
+          <el-date-picker v-model="feedbackForm.executeDate" type="date" value-format="YYYY-MM-DD" style="width: 220px" />
+        </el-form-item>
+        <el-form-item label="实际灰分">
+          <el-input-number v-model="feedbackForm.actualAsh" :min="0" :precision="2" style="width: 220px" />
+        </el-form-item>
+        <el-form-item label="实际硫分">
+          <el-input-number v-model="feedbackForm.actualSulfur" :min="0" :precision="2" style="width: 220px" />
+        </el-form-item>
+        <el-form-item label="实际水分">
+          <el-input-number v-model="feedbackForm.actualMoisture" :min="0" :precision="2" style="width: 220px" />
+        </el-form-item>
+        <el-form-item label="实际挥发分">
+          <el-input-number v-model="feedbackForm.actualVolatile" :min="0" :precision="2" style="width: 220px" />
+        </el-form-item>
+        <el-form-item label="实际热值">
+          <el-input-number v-model="feedbackForm.actualCalorific" :min="0" :precision="2" style="width: 220px" />
+        </el-form-item>
+        <el-form-item label="实际成本">
+          <el-input-number v-model="feedbackForm.actualCost" :min="0" :precision="2" style="width: 220px" />
+        </el-form-item>
+        <el-form-item label="是否达标">
+          <el-radio-group v-model="feedbackForm.qualifiedFlag">
+            <el-radio :label="1">达标</el-radio>
+            <el-radio :label="0">未达标</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="执行评价">
+          <el-select v-model="feedbackForm.effectivenessEval" style="width: 220px">
+            <el-option label="优秀" value="优秀" />
+            <el-option label="良好" value="良好" />
+            <el-option label="一般" value="一般" />
+            <el-option label="较差" value="较差" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="反馈说明">
+          <el-input v-model="feedbackForm.feedbackDesc" type="textarea" :rows="3" maxlength="500" show-word-limit />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="feedbackVisible = false">取消</el-button>
+        <el-button type="primary" :loading="feedbackSaving" @click="submitFeedback">保存</el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import MarkdownContent from '@/components/MarkdownContent.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useCoalTypes } from '@/composables/useCoalTypes'
 import { formatDateTime, formatMoney } from '@/utils/format'
@@ -121,7 +238,13 @@ import {
   fetchBlendPlanHistory,
   selectBlendPlan,
 } from '@/api/blendPlan'
+import {
+  convertFeedbackToCase,
+  createFeedback,
+  fetchFeedbackByPlan,
+} from '@/api/blendPlanFeedback'
 import { fetchOrderPage } from '@/api/order'
+import { auth } from '@/stores/auth'
 
 const { coalLabel, load: loadCoals } = useCoalTypes()
 
@@ -146,9 +269,46 @@ const drawerVisible = ref(false)
 const detailLoading = ref(false)
 const plan = ref(null)
 const details = ref([])
+const feedbackRows = ref([])
+
+const feedbackVisible = ref(false)
+const feedbackSaving = ref(false)
+const feedbackFormRef = ref(null)
+const feedbackForm = reactive({
+  actualQuantity: undefined,
+  actualAsh: undefined,
+  actualSulfur: undefined,
+  actualMoisture: undefined,
+  actualVolatile: undefined,
+  actualCalorific: undefined,
+  actualCost: undefined,
+  qualifiedFlag: 1,
+  effectivenessEval: '良好',
+  feedbackDesc: '',
+  executeDate: '',
+})
+const feedbackRules = {
+  actualQuantity: [{ required: true, message: '请输入实际执行量', trigger: 'change' }],
+}
 
 function orderLabel(orderId) {
   return orderMap[orderId] || orderId || '—'
+}
+
+function riskLabel(level) {
+  const map = {
+    low: '低风险',
+    medium: '中风险',
+    high: '高风险',
+  }
+  return map[level] || level || '—'
+}
+
+function riskTagType(level) {
+  if (level === 'high') return 'danger'
+  if (level === 'medium') return 'warning'
+  if (level === 'low') return 'success'
+  return 'info'
 }
 
 function buildQuery() {
@@ -195,14 +355,79 @@ async function openDetail(id) {
   drawerVisible.value = true
   plan.value = null
   details.value = []
+  feedbackRows.value = []
   detailLoading.value = true
   try {
     await loadCoals()
-    const [p, d] = await Promise.all([fetchBlendPlanDetail(id), fetchBlendPlanDetails(id)])
+    const [p, d, f] = await Promise.all([
+      fetchBlendPlanDetail(id),
+      fetchBlendPlanDetails(id),
+      fetchFeedbackByPlan(id),
+    ])
     plan.value = p
     details.value = Array.isArray(d) ? d : []
+    feedbackRows.value = Array.isArray(f) ? f : []
   } finally {
     detailLoading.value = false
+  }
+}
+
+function resetFeedbackForm() {
+  feedbackForm.actualQuantity = undefined
+  feedbackForm.actualAsh = undefined
+  feedbackForm.actualSulfur = undefined
+  feedbackForm.actualMoisture = undefined
+  feedbackForm.actualVolatile = undefined
+  feedbackForm.actualCalorific = undefined
+  feedbackForm.actualCost = undefined
+  feedbackForm.qualifiedFlag = 1
+  feedbackForm.effectivenessEval = '良好'
+  feedbackForm.feedbackDesc = ''
+  feedbackForm.executeDate = ''
+  feedbackFormRef.value?.clearValidate?.()
+}
+
+function openFeedbackCreate() {
+  if (!plan.value) return
+  resetFeedbackForm()
+  feedbackVisible.value = true
+}
+
+async function submitFeedback() {
+  await feedbackFormRef.value?.validate?.()
+  if (!plan.value) return
+  feedbackSaving.value = true
+  try {
+    await createFeedback({
+      planId: plan.value.id,
+      actualQuantity: feedbackForm.actualQuantity,
+      actualAsh: feedbackForm.actualAsh,
+      actualSulfur: feedbackForm.actualSulfur,
+      actualMoisture: feedbackForm.actualMoisture,
+      actualVolatile: feedbackForm.actualVolatile,
+      actualCalorific: feedbackForm.actualCalorific,
+      actualCost: feedbackForm.actualCost,
+      qualifiedFlag: feedbackForm.qualifiedFlag,
+      effectivenessEval: feedbackForm.effectivenessEval,
+      feedbackDesc: feedbackForm.feedbackDesc?.trim() || null,
+      executeDate: feedbackForm.executeDate || undefined,
+      operatorId: auth.userId ?? undefined,
+    })
+    ElMessage.success('反馈已保存')
+    feedbackVisible.value = false
+    await openDetail(plan.value.id)
+    await load()
+  } finally {
+    feedbackSaving.value = false
+  }
+}
+
+async function onConvertToCase(row) {
+  await ElMessageBox.confirm('确定将该执行反馈沉淀为历史案例吗？', '案例回流', { type: 'warning' })
+  await convertFeedbackToCase(row.id)
+  ElMessage.success('已生成历史案例')
+  if (plan.value?.id) {
+    await openDetail(plan.value.id)
   }
 }
 
@@ -265,5 +490,20 @@ onMounted(async () => {
   font-size: 13px;
   color: #475569;
   white-space: pre-wrap;
+}
+
+.ml8 {
+  margin-left: 8px;
+}
+
+.drawer-detail-scroll {
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+}
+
+.ai-markdown-scroll {
+  overflow-x: hidden;
 }
 </style>

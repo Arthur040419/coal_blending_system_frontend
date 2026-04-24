@@ -1,7 +1,10 @@
 import http from './http'
 
+/** 配煤生成含同步大模型调用，耗时可能超过普通接口；应不小于后端 coal.llm.read-timeout（默认 10m） */
+const GENERATE_TIMEOUT_MS = 600000
+
 export function generateBlendPlan(body) {
-  return http.post('/blendPlan/generate', body)
+  return http.post('/blendPlan/generate', body, { timeout: GENERATE_TIMEOUT_MS })
 }
 
 export function fetchBlendPlanPage(params) {
