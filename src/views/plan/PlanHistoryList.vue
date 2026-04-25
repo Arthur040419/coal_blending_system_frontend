@@ -98,6 +98,11 @@
               {{ riskLabel(plan.riskLevel) }}
             </el-tag>
           </el-descriptions-item>
+          <el-descriptions-item label="候选来源">
+            <el-tag :type="candidateSourceTag(plan.candidateSource)" size="small">
+              {{ candidateSourceLabel(plan.candidateSource) }}
+            </el-tag>
+          </el-descriptions-item>
           <el-descriptions-item label="生成时间">{{ formatDateTime(plan.createTime) }}</el-descriptions-item>
           <el-descriptions-item v-if="plan.aiModelName" label="解释模型" :span="2">
             {{ plan.aiModelName }}
@@ -112,6 +117,10 @@
         <div v-if="plan.scoreDetail" class="mb">
           <div class="sub">评分明细</div>
           <div class="text">{{ plan.scoreDetail }}</div>
+        </div>
+        <div v-if="plan.aiCandidateReason" class="mb">
+          <div class="sub">AI候选生成理由</div>
+          <div class="text">{{ plan.aiCandidateReason }}</div>
         </div>
         <div v-if="plan.ruleBasis" class="mb">
           <div class="sub">规则依据 ruleBasis</div>
@@ -327,6 +336,21 @@ function riskTagType(level) {
   if (level === 'high') return 'danger'
   if (level === 'medium') return 'warning'
   if (level === 'low') return 'success'
+  return 'info'
+}
+
+function candidateSourceLabel(source) {
+  const map = {
+    ai: '大模型候选',
+    system: '系统枚举',
+    hybrid: '混合生成',
+  }
+  return map[source] || source || '系统枚举'
+}
+
+function candidateSourceTag(source) {
+  if (source === 'ai') return 'warning'
+  if (source === 'hybrid') return 'success'
   return 'info'
 }
 
