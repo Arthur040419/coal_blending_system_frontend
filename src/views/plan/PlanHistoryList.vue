@@ -108,26 +108,38 @@
           <div class="sub">评分明细</div>
           <div class="text">{{ plan.scoreDetail }}</div>
         </div>
-        <div v-if="plan.explanation" class="mb">
-          <div class="sub">方案说明</div>
-          <div class="ai-markdown-scroll">
-            <MarkdownContent :content="plan.explanation" />
-          </div>
-        </div>
         <div v-if="plan.ruleBasis" class="mb">
-          <div class="sub">规则依据</div>
+          <div class="sub">规则依据 ruleBasis</div>
           <div class="ai-markdown-scroll">
             <MarkdownContent :content="plan.ruleBasis" />
           </div>
         </div>
+        <div v-if="plan.caseReference" class="mb">
+          <div class="sub">案例参考 caseReference</div>
+          <div class="ai-markdown-scroll">
+            <MarkdownContent :content="plan.caseReference" />
+          </div>
+        </div>
+        <div v-if="plan.recommendReason" class="mb">
+          <div class="sub">推荐理由 recommendReason</div>
+          <div class="ai-markdown-scroll">
+            <MarkdownContent :content="plan.recommendReason" />
+          </div>
+        </div>
         <div v-if="plan.riskTip" class="mb">
-          <div class="sub">风险提示</div>
+          <div class="sub">风险提示 riskTip</div>
           <div class="ai-markdown-scroll">
             <MarkdownContent :content="plan.riskTip" />
           </div>
         </div>
+        <div v-if="plan.finalExplanation || plan.explanation" class="mb">
+          <div class="sub">最终解释 finalExplanation</div>
+          <div class="ai-markdown-scroll">
+            <MarkdownContent :content="plan.finalExplanation || plan.explanation" />
+          </div>
+        </div>
         <div v-if="plan.optimizeSuggestion" class="mb">
-          <div class="sub">优化建议</div>
+          <div class="sub">优化建议（旧字段兼容）</div>
           <div class="ai-markdown-scroll">
             <MarkdownContent :content="plan.optimizeSuggestion" />
           </div>

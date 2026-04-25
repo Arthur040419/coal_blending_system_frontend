@@ -104,6 +104,21 @@
             <div class="plain-text">{{ result.recommendedPlan.plan.scoreDetail }}</div>
           </el-alert>
 
+          <template v-if="result.recommendedPlan?.details?.length">
+            <div class="sub-title">推荐方案配比明细</div>
+            <el-table :data="result.recommendedPlan.details" border size="small" class="mb">
+              <el-table-column prop="coalName" label="煤种" min-width="120" show-overflow-tooltip />
+              <el-table-column prop="blendRatio" label="配比" width="90">
+                <template #default="{ row }">
+                  {{ row.blendRatio != null ? `${Number(row.blendRatio * 100).toFixed(0)}%` : '—' }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="useQuantity" label="用量(吨)" width="100" />
+              <el-table-column prop="unitCost" label="单价" width="90" />
+              <el-table-column prop="remark" label="库存说明" min-width="180" show-overflow-tooltip />
+            </el-table>
+          </template>
+
           <template v-if="result.knowledgeSummary">
             <div class="sub-title">订单与知识摘要</div>
             <el-descriptions :column="1" border size="small" class="mb">
@@ -121,6 +136,33 @@
                 {{ result.knowledgeSummary.caseCount ?? 0 }} 条
               </el-descriptions-item>
             </el-descriptions>
+          </template>
+
+          <template v-if="result.ragRetrieveResult">
+            <div class="sub-title ai-block-title">
+              RAG 知识增强结果
+              <el-tag type="success" size="small" effect="plain">统一知识库</el-tag>
+            </div>
+            <el-descriptions :column="1" border size="small" class="mb">
+              <el-descriptions-item label="检索关键词">
+                {{ result.ragRetrieveResult.keywords?.join('、') || '—' }}
+              </el-descriptions-item>
+              <el-descriptions-item label="命中知识ID">
+                {{ result.ragRetrieveResult.matchedKnowledgeIds?.join(', ') || '—' }}
+              </el-descriptions-item>
+            </el-descriptions>
+            <el-table
+              v-if="result.ragRetrieveResult.all?.length"
+              :data="result.ragRetrieveResult.all"
+              border
+              size="small"
+              class="mb kb-table"
+            >
+              <el-table-column prop="title" label="知识标题" min-width="150" show-overflow-tooltip />
+              <el-table-column prop="knowledgeType" label="类型" width="90" />
+              <el-table-column prop="hitReason" label="命中原因" min-width="180" show-overflow-tooltip />
+              <el-table-column prop="score" label="得分" width="80" align="right" />
+            </el-table>
           </template>
 
           <template v-if="result.matchedRules?.length">
@@ -142,30 +184,81 @@
             </el-table>
           </template>
 
-          <template v-if="result.recommendedPlan?.plan">
+          <template v-if="result.ragExplanation">
             <div class="sub-title ai-block-title">
-              AI 方案说明
-              <el-tag type="warning" size="small" effect="plain">知识增强</el-tag>
+              RAG JSON 解释结果
+              <el-tag type="warning" size="small" effect="plain">JSON输出</el-tag>
             </div>
             <el-alert
-              v-if="result.recommendedPlan.plan.explanation"
-              title="方案说明"
+              v-if="result.ragExplanation.ruleBasis"
+              title="规则依据 ruleBasis"
               type="success"
               :closable="false"
               show-icon
               class="mb ai-markdown-alert"
             >
               <div class="ai-markdown-scroll">
-                <MarkdownContent :content="result.recommendedPlan.plan.explanation" />
+                <MarkdownContent :content="result.ragExplanation.ruleBasis" />
               </div>
             </el-alert>
+            <el-alert
+              v-if="result.ragExplanation.caseReference"
+              title="案例参考 caseReference"
+              type="info"
+              :closable="false"
+              show-icon
+              class="mb ai-markdown-alert"
+            >
+              <div class="ai-markdown-scroll">
+                <MarkdownContent :content="result.ragExplanation.caseReference" />
+              </div>
+            </el-alert>
+            <el-alert
+              v-if="result.ragExplanation.recommendReason"
+              title="推荐理由 recommendReason"
+              type="success"
+              :closable="false"
+              show-icon
+              class="mb ai-markdown-alert"
+            >
+              <div class="ai-markdown-scroll">
+                <MarkdownContent :content="result.ragExplanation.recommendReason" />
+              </div>
+            </el-alert>
+            <el-alert
+              v-if="result.ragExplanation.riskTip"
+              title="风险提示 riskTip"
+              type="warning"
+              :closable="false"
+              show-icon
+              class="mb ai-markdown-alert"
+            >
+              <div class="ai-markdown-scroll">
+                <MarkdownContent :content="result.ragExplanation.riskTip" />
+              </div>
+            </el-alert>
+            <el-alert
+              v-if="result.ragExplanation.explanation"
+              title="最终解释 finalExplanation"
+              type="info"
+              :closable="false"
+              show-icon
+              class="mb ai-markdown-alert"
+            >
+              <div class="ai-markdown-scroll">
+                <MarkdownContent :content="result.ragExplanation.explanation" />
+              </div>
+            </el-alert>
+          </template>
+
+          <template v-if="result.recommendedPlan?.plan">
             <div class="sub-title ai-block-title">
-              AI 规则依据
-              <el-tag type="warning" size="small" effect="plain">知识增强</el-tag>
+              方案JSON解释落库结果
+              <el-tag type="warning" size="small" effect="plain">RAG</el-tag>
             </div>
             <el-alert
               v-if="result.recommendedPlan.plan.ruleBasis"
-              title="规则依据"
+              title="规则依据 ruleBasis"
               type="success"
               :closable="false"
               show-icon
@@ -175,13 +268,33 @@
                 <MarkdownContent :content="result.recommendedPlan.plan.ruleBasis" />
               </div>
             </el-alert>
-            <div class="sub-title ai-block-title">
-              AI 风险提示
-              <el-tag type="warning" size="small" effect="plain">知识增强</el-tag>
-            </div>
+            <el-alert
+              v-if="result.recommendedPlan.plan.caseReference"
+              title="案例参考 caseReference"
+              type="info"
+              :closable="false"
+              show-icon
+              class="mb ai-markdown-alert"
+            >
+              <div class="ai-markdown-scroll">
+                <MarkdownContent :content="result.recommendedPlan.plan.caseReference" />
+              </div>
+            </el-alert>
+            <el-alert
+              v-if="result.recommendedPlan.plan.recommendReason"
+              title="推荐理由 recommendReason"
+              type="success"
+              :closable="false"
+              show-icon
+              class="mb ai-markdown-alert"
+            >
+              <div class="ai-markdown-scroll">
+                <MarkdownContent :content="result.recommendedPlan.plan.recommendReason" />
+              </div>
+            </el-alert>
             <el-alert
               v-if="result.recommendedPlan.plan.riskTip"
-              title="风险提示"
+              title="风险提示 riskTip"
               type="warning"
               :closable="false"
               show-icon
@@ -191,20 +304,16 @@
                 <MarkdownContent :content="result.recommendedPlan.plan.riskTip" />
               </div>
             </el-alert>
-            <div class="sub-title ai-block-title">
-              AI 优化建议
-              <el-tag type="warning" size="small" effect="plain">知识增强</el-tag>
-            </div>
             <el-alert
-              v-if="result.recommendedPlan.plan.optimizeSuggestion"
-              title="优化建议"
+              v-if="result.recommendedPlan.plan.finalExplanation || result.recommendedPlan.plan.explanation"
+              title="最终解释 finalExplanation"
               type="info"
               :closable="false"
               show-icon
               class="mb ai-markdown-alert"
             >
               <div class="ai-markdown-scroll">
-                <MarkdownContent :content="result.recommendedPlan.plan.optimizeSuggestion" />
+                <MarkdownContent :content="result.recommendedPlan.plan.finalExplanation || result.recommendedPlan.plan.explanation" />
               </div>
             </el-alert>
           </template>
