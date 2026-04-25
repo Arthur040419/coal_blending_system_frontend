@@ -54,6 +54,7 @@
         <template #default="{ row }">
           <el-button link type="primary" @click="openDetail(row.id)">详情</el-button>
           <el-button link type="success" :disabled="row.planStatus === 'selected'" @click="onSelect(row)">选用</el-button>
+          <el-button link type="warning" :disabled="row.traceStatus === 'executed' || row.planStatus === 'executed'" @click="onExecute(row)">执行</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -78,6 +79,10 @@
           <el-descriptions-item label="方案编号">{{ plan.planCode }}</el-descriptions-item>
           <el-descriptions-item label="订单">{{ orderLabel(plan.orderId) }}</el-descriptions-item>
           <el-descriptions-item label="状态">{{ plan.planStatus }}</el-descriptions-item>
+          <el-descriptions-item label="追溯状态">{{ plan.traceStatus || 'not_executed' }}</el-descriptions-item>
+          <el-descriptions-item v-if="plan.finalProductBatchNo" label="最终产品批次" :span="2">
+            {{ plan.finalProductBatchNo }}
+          </el-descriptions-item>
           <el-descriptions-item label="总成本">{{ formatMoney(plan.totalCost) }}</el-descriptions-item>
           <el-descriptions-item label="质量分">{{ formatMoney(plan.qualityScore) }}</el-descriptions-item>
           <el-descriptions-item label="成本分">{{ formatMoney(plan.costScore) }}</el-descriptions-item>
@@ -149,6 +154,7 @@
           <el-table-column label="煤种" min-width="140">
             <template #default="{ row }">{{ coalLabel(row.coalId) }}</template>
           </el-table-column>
+          <el-table-column prop="productBatchNo" label="产品批次" min-width="150" show-overflow-tooltip />
           <el-table-column prop="blendRatio" label="配比%" width="90" align="right" />
           <el-table-column prop="useQuantity" label="用量(吨)" width="100" align="right">
             <template #default="{ row }">{{ formatMoney(row.useQuantity) }}</template>
@@ -248,6 +254,7 @@ import {
   fetchBlendPlanDetail,
   fetchBlendPlanDetails,
   fetchBlendPlanHistory,
+  executeBlendPlan,
   selectBlendPlan,
 } from '@/api/blendPlan'
 import {
@@ -447,6 +454,21 @@ async function onSelect(row) {
   await ElMessageBox.confirm(`确定选用方案「${row.planCode}」吗？`, '选用方案', { type: 'warning' })
   await selectBlendPlan(row.id)
   ElMessage.success('已选用')
+  await load()
+}
+
+async function onExecute(row) {
+  await ElMessageBox.confirm(`确定执行方案「${row.planCode}」并生成最终产品批次吗？`, '执行方案', { type: 'warning' })
+  const res = await executeBlendPlan({
+    planId: row.id,
+    operatorName: auth.user?.realName || auth.user?.username || 'admin',
+    warehouseCode: 'FP001',
+    remark: '方案追溯页执行生成最终产品批次',
+  })
+  ElMessage.success(`已生成最终产品批次：${res?.finalProductBatchNo || '—'}`)
+  if (plan.value?.id === row.id) {
+    await openDetail(row.id)
+  }
   await load()
 }
 

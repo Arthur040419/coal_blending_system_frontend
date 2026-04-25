@@ -30,3 +30,7 @@ export function fetchBlendPlanByOrder(orderId) {
 export function selectBlendPlan(planId) {
   return http.put('/blendPlan/select', { planId })
 }
+
+export function executeBlendPlan(body) {
+  return http.post('/blendPlan/execute', body)
+}

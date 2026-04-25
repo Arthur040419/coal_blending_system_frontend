@@ -74,6 +74,7 @@ const menuItems = [
   { path: '/coal-types', label: '煤种管理' },
   { path: '/coal-quality', label: '煤质管理' },
   { path: '/inventory', label: '库存管理' },
+  { path: '/full-chain', label: '全链路数据' },
   { path: '/rules', label: '规则知识' },
   { path: '/cases', label: '历史案例' },
   { path: '/plan-history', label: '方案追溯' },

@@ -52,6 +52,12 @@ const routes = [
         meta: { title: '库存管理' },
       },
       {
+        path: 'full-chain',
+        name: 'FullChain',
+        component: () => import('@/views/chain/FullChainWorkspace.vue'),
+        meta: { title: '全链路数据' },
+      },
+      {
         path: 'rules',
         name: 'Rules',
         component: () => import('@/views/rule/RuleKnowledgeList.vue'),

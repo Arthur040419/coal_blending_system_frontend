@@ -18,6 +18,10 @@
           <el-table-column prop="orderStatus" label="状态" width="90" />
         </el-table>
         <div class="actions">
+          <el-select v-model="candidateScope" style="width: 170px">
+            <el-option label="煤种级配煤" value="coal_type" />
+            <el-option label="产品批次级配煤" value="product_batch" />
+          </el-select>
           <el-button
             type="primary"
             :disabled="!selectedOrder"
@@ -108,6 +112,7 @@
             <div class="sub-title">推荐方案配比明细</div>
             <el-table :data="result.recommendedPlan.details" border size="small" class="mb">
               <el-table-column prop="coalName" label="煤种" min-width="120" show-overflow-tooltip />
+              <el-table-column prop="productBatchNo" label="产品批次" min-width="150" show-overflow-tooltip />
               <el-table-column prop="blendRatio" label="配比" width="90">
                 <template #default="{ row }">
                   {{ row.blendRatio != null ? `${Number(row.blendRatio * 100).toFixed(0)}%` : '—' }}
@@ -377,6 +382,7 @@
                 </el-alert>
                 <el-table v-if="candidate.details?.length" :data="candidate.details" border size="small">
                   <el-table-column prop="coalName" label="煤种" min-width="120" show-overflow-tooltip />
+                  <el-table-column prop="productBatchNo" label="产品批次" min-width="150" show-overflow-tooltip />
                   <el-table-column prop="blendRatio" label="配比" width="90">
                     <template #default="{ row }">
                       {{ row.blendRatio != null ? `${Number(row.blendRatio * 100).toFixed(0)}%` : '—' }}
@@ -407,6 +413,7 @@ const orders = ref([])
 const selectedOrder = ref(null)
 const generating = ref(false)
 const result = ref(null)
+const candidateScope = ref('coal_type')
 
 function onSelectOrder(row) {
   selectedOrder.value = row || null
@@ -446,6 +453,7 @@ async function onGenerate() {
     result.value = await generateBlendPlan({
       orderId: selectedOrder.value.id,
       createBy: auth.userId ?? undefined,
+      candidateScope: candidateScope.value,
     })
   } finally {
     generating.value = false
