@@ -92,7 +92,7 @@
             </el-descriptions-item>
             <el-descriptions-item label="候选来源">
               <el-tag :type="candidateSourceTag(result.recommendedPlan.plan.candidateSource)" size="small">
-                {{ candidateSourceLabel(result.recommendedPlan.plan.candidateSource) }}
+                {{ candidateSourceLabel(result.recommendedPlan.plan.candidateSource, result.recommendedPlan.plan) }}
               </el-tag>
             </el-descriptions-item>
             <el-descriptions-item v-if="result.recommendedPlan.plan.aiModelName" label="解释模型">
@@ -102,7 +102,14 @@
               >
               <el-tag v-else type="info" size="small" class="ml8">兜底说明</el-tag>
             </el-descriptions-item>
+            <el-descriptions-item v-if="result.constraints?.experimentCode" label="实验编号" :span="2">
+              {{ result.constraints.experimentCode }}
+            </el-descriptions-item>
           </el-descriptions>
+          <div v-if="result.recommendedPlan?.plan" class="mb">
+            <div class="sub-title">方案评分雷达图</div>
+            <PlanScoreRadar :plan="result.recommendedPlan.plan" />
+          </div>
           <el-alert
             v-if="result.recommendedPlan?.plan?.constraintSummary"
             title="约束校验"
@@ -425,10 +432,11 @@
                   </el-descriptions-item>
                   <el-descriptions-item label="候选来源">
                     <el-tag :type="candidateSourceTag(candidate.plan.candidateSource)" size="small">
-                      {{ candidateSourceLabel(candidate.plan.candidateSource) }}
+                      {{ candidateSourceLabel(candidate.plan.candidateSource, candidate.plan) }}
                     </el-tag>
                   </el-descriptions-item>
                 </el-descriptions>
+                <PlanScoreRadar v-if="candidate.plan" :plan="candidate.plan" class="mb" />
                 <el-alert
                   v-if="candidate.plan?.aiCandidateReason"
                   title="AI候选生成理由"
@@ -623,6 +631,7 @@
 <script setup>
 import { computed, defineComponent, h, onMounted, ref, resolveComponent } from 'vue'
 import MarkdownContent from '@/components/MarkdownContent.vue'
+import PlanScoreRadar from '@/components/PlanScoreRadar.vue'
 import { generateBlendPlan } from '@/api/blendPlan'
 import { fetchOrderPage } from '@/api/order'
 import { auth } from '@/stores/auth'
@@ -693,9 +702,16 @@ function riskTagType(level) {
   return 'info'
 }
 
-function candidateSourceLabel(source) {
+function candidateSourceLabel(source, plan = {}) {
+  if (source === 'ai') {
+    const modelName =
+      plan.candidateModelName ||
+      result.value?.aiCandidateResult?.modelName ||
+      result.value?.constraints?.experimentModelName ||
+      plan.aiModelName
+    return modelName ? `大模型候选（${modelName}）` : '大模型候选'
+  }
   const map = {
-    ai: '大模型候选',
     system: '系统枚举',
     hybrid: '混合生成',
   }
@@ -748,13 +764,13 @@ function formatAiDetailRows(items = []) {
 
 function formatPlanTitle(candidate, index) {
   const plan = candidate?.plan || {}
-  const source = candidateSourceLabel(plan.candidateSource)
+  const source = candidateSourceLabel(plan.candidateSource, plan)
   return `${index + 1}. ${plan.planName || '候选方案'}｜${source}｜综合分 ${plan.overallScore ?? '—'}｜总成本 ${plan.totalCost ?? '—'}`
 }
 
 function formatEvaluationTitle(candidate, index) {
   const plan = candidate?.plan || {}
-  const source = candidateSourceLabel(plan.candidateSource)
+  const source = candidateSourceLabel(plan.candidateSource, plan)
   const feasible = plan.feasibleFlag === 0 ? '不可行' : '可行'
   return `${index + 1}. ${plan.planName || '候选方案'}｜${source}｜${feasible}｜综合分 ${plan.overallScore ?? '—'}｜质量 ${plan.qualityScore ?? '—'}｜成本 ${plan.costScore ?? '—'}｜稳定 ${plan.stabilityScore ?? '—'}`
 }
@@ -770,6 +786,7 @@ function normalizeEvaluationCandidate(row) {
       costScore: row.costScore,
       stabilityScore: row.stabilityScore,
       overallScore: row.overallScore,
+      candidateModelName: result.value?.aiCandidateResult?.modelName || result.value?.constraints?.experimentModelName,
       feasibleFlag: row.feasibleFlag,
       constraintSummary: row.constraintSummary,
       scoreDetail: row.scoreDetail,
@@ -829,7 +846,7 @@ const CandidatePlanDetail = defineComponent({
                 h(
                   ElTag,
                   { type: props.candidateSourceTag(plan.candidateSource), size: 'small' },
-                  () => props.candidateSourceLabel(plan.candidateSource),
+                  () => props.candidateSourceLabel(plan.candidateSource, plan),
                 ),
               ),
             ],

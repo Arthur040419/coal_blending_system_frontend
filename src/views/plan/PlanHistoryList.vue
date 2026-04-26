@@ -100,7 +100,7 @@
           </el-descriptions-item>
           <el-descriptions-item label="候选来源">
             <el-tag :type="candidateSourceTag(plan.candidateSource)" size="small">
-              {{ candidateSourceLabel(plan.candidateSource) }}
+              {{ candidateSourceLabel(plan.candidateSource, plan) }}
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="生成时间">{{ formatDateTime(plan.createTime) }}</el-descriptions-item>
@@ -110,6 +110,24 @@
             <el-tag v-else type="info" size="small" class="ml8">兜底</el-tag>
           </el-descriptions-item>
         </el-descriptions>
+        <div class="mb">
+          <div class="sub">方案评分雷达图</div>
+          <PlanScoreRadar :plan="plan" />
+        </div>
+        <div v-if="experimentRows.length" class="mb">
+          <div class="sub">模型实验评分记录</div>
+          <el-table :data="experimentRows" border size="small">
+            <el-table-column prop="experimentCode" label="实验编号" min-width="160" show-overflow-tooltip />
+            <el-table-column prop="modelName" label="模型" min-width="130" show-overflow-tooltip />
+            <el-table-column prop="qualityScore" label="质量" width="70" align="right" />
+            <el-table-column prop="costScore" label="成本" width="70" align="right" />
+            <el-table-column prop="inventoryScore" label="库存" width="70" align="right" />
+            <el-table-column prop="finalScore" label="综合" width="70" align="right" />
+            <el-table-column prop="createTime" label="记录时间" width="155">
+              <template #default="{ row }">{{ formatDateTime(row.createTime) }}</template>
+            </el-table-column>
+          </el-table>
+        </div>
         <div v-if="plan.constraintSummary" class="mb">
           <div class="sub">约束校验</div>
           <div class="text">{{ plan.constraintSummary }}</div>
@@ -256,6 +274,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import MarkdownContent from '@/components/MarkdownContent.vue'
+import PlanScoreRadar from '@/components/PlanScoreRadar.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useCoalTypes } from '@/composables/useCoalTypes'
 import { formatDateTime, formatMoney } from '@/utils/format'
@@ -271,6 +290,7 @@ import {
   createFeedback,
   fetchFeedbackByPlan,
 } from '@/api/blendPlanFeedback'
+import { fetchExperimentRecordPage } from '@/api/experimentRecord'
 import { fetchOrderPage } from '@/api/order'
 import { auth } from '@/stores/auth'
 
@@ -298,6 +318,7 @@ const detailLoading = ref(false)
 const plan = ref(null)
 const details = ref([])
 const feedbackRows = ref([])
+const experimentRows = ref([])
 
 const feedbackVisible = ref(false)
 const feedbackSaving = ref(false)
@@ -339,9 +360,12 @@ function riskTagType(level) {
   return 'info'
 }
 
-function candidateSourceLabel(source) {
+function candidateSourceLabel(source, row = {}) {
+  if (source === 'ai') {
+    const modelName = experimentRows.value?.[0]?.modelName || row.candidateModelName || row.aiModelName
+    return modelName ? `大模型候选（${modelName}）` : '大模型候选'
+  }
   const map = {
-    ai: '大模型候选',
     system: '系统枚举',
     hybrid: '混合生成',
   }
@@ -399,17 +423,20 @@ async function openDetail(id) {
   plan.value = null
   details.value = []
   feedbackRows.value = []
+  experimentRows.value = []
   detailLoading.value = true
   try {
     await loadCoals()
-    const [p, d, f] = await Promise.all([
+    const [p, d, f, exp] = await Promise.all([
       fetchBlendPlanDetail(id),
       fetchBlendPlanDetails(id),
       fetchFeedbackByPlan(id),
+      fetchExperimentRecordPage({ current: 1, size: 20, planId: id }),
     ])
     plan.value = p
     details.value = Array.isArray(d) ? d : []
     feedbackRows.value = Array.isArray(f) ? f : []
+    experimentRows.value = exp?.records ?? []
   } finally {
     detailLoading.value = false
   }
