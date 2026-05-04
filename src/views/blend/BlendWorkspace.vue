@@ -1,279 +1,347 @@
 <template>
-  <el-row :gutter="16">
-    <el-col :xs="24" :lg="10">
+  <div class="blend-cockpit">
+    <div class="top-grid">
       <el-card shadow="never" class="panel">
-        <template #header>选择订单并生成方案</template>
-        <p class="tip">请先在「订单管理」中确认有数据；此处选择一行后点击生成。</p>
-        <el-table
-          ref="tableRef"
-          v-loading="orderLoading"
-          :data="orders"
-          highlight-current-row
-          height="320"
-          border
-          @current-change="onSelectOrder"
-        >
-          <el-table-column prop="orderCode" label="订单编号" width="130" />
-          <el-table-column prop="customerName" label="客户" min-width="100" />
-          <el-table-column prop="orderStatus" label="状态" width="90" />
-        </el-table>
-        <div class="actions">
-          <el-select v-model="candidateScope" style="width: 170px">
-            <el-option label="煤种级配煤" value="coal_type" />
-            <el-option label="产品批次级配煤" value="product_batch" />
-          </el-select>
-          <el-button
-            type="primary"
-            :disabled="!selectedOrder"
-            :loading="generating"
-            @click="onGenerate"
+        <template #header>
+          <div class="panel-head">
+            <span>智能配煤决策驾驶舱</span>
+            <el-button :icon="Refresh" @click="loadOrders">刷新订单</el-button>
+          </div>
+        </template>
+
+        <el-row :gutter="16">
+          <el-col :xs="24" :lg="13">
+            <el-table
+              v-loading="orderLoading"
+              :data="orders"
+              highlight-current-row
+              height="280"
+              border
+              @current-change="onSelectOrder"
+            >
+              <el-table-column prop="orderCode" label="订单编号" width="130" />
+              <el-table-column prop="customerName" label="客户" min-width="120" show-overflow-tooltip />
+              <el-table-column prop="demandQuantity" label="需求(吨)" width="110" align="right" />
+              <el-table-column prop="targetSulfur" label="硫分上限" width="95" align="right" />
+              <el-table-column prop="targetCalorific" label="热值下限" width="95" align="right" />
+              <el-table-column prop="orderStatus" label="状态" width="90" />
+            </el-table>
+          </el-col>
+
+          <el-col :xs="24" :lg="11">
+            <el-form :model="form" label-width="94px" class="param-form">
+              <el-form-item label="当前订单">
+                <el-tag v-if="selectedOrder" type="success" effect="plain">
+                  {{ selectedOrder.orderCode || `订单${selectedOrder.id}` }}
+                </el-tag>
+                <el-tag v-else type="info" effect="plain">未选择</el-tag>
+              </el-form-item>
+              <el-form-item label="候选范围">
+                <el-segmented v-model="form.candidateScope" :options="candidateScopeOptions" />
+              </el-form-item>
+              <el-form-item label="评分策略">
+                <el-select v-model="form.scoreStrategy" style="width: 220px">
+                  <el-option label="均衡策略" value="BALANCED" />
+                  <el-option label="质量优先" value="QUALITY_FIRST" />
+                  <el-option label="成本优先" value="COST_FIRST" />
+                  <el-option label="库存优先" value="INVENTORY_FIRST" />
+                </el-select>
+              </el-form-item>
+              <el-collapse class="advanced">
+                <el-collapse-item name="advanced">
+                  <template #title>
+                    <el-icon><Setting /></el-icon>
+                    <span class="advanced-title">高级参数</span>
+                  </template>
+                  <div class="advanced-grid">
+                    <el-form-item label="配比步长">
+                      <el-select v-model="form.ratioStep">
+                        <el-option label="0.05" :value="0.05" />
+                        <el-option label="0.10" :value="0.1" />
+                      </el-select>
+                    </el-form-item>
+                    <el-form-item label="短名单数">
+                      <el-input-number v-model="form.maxShortlistCoals" :min="3" :max="10" />
+                    </el-form-item>
+                    <el-form-item label="煤种数">
+                      <el-select v-model="form.maxMaterialCount">
+                        <el-option label="2" :value="2" />
+                        <el-option label="3" :value="3" />
+                      </el-select>
+                    </el-form-item>
+                    <el-form-item label="返回方案">
+                      <el-input-number v-model="form.maxReturnPlans" :min="3" :max="10" />
+                    </el-form-item>
+                  </div>
+                </el-collapse-item>
+              </el-collapse>
+              <el-form-item class="generate-row">
+                <el-button
+                  type="primary"
+                  :icon="Cpu"
+                  :disabled="!selectedOrder"
+                  :loading="generating"
+                  @click="onGenerate"
+                >
+                  生成方案
+                </el-button>
+              </el-form-item>
+            </el-form>
+          </el-col>
+        </el-row>
+      </el-card>
+
+      <div v-if="result" class="static-stack">
+        <el-card shadow="never" class="panel">
+          <template #header>本次生成配置</template>
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="评分策略">{{ result.generationConfig?.scoreStrategyLabel || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="权重">
+              质量 {{ percent(result.generationConfig?.qualityWeight) }} · 成本 {{ percent(result.generationConfig?.costWeight) }} · 稳定 {{ percent(result.generationConfig?.stabilityWeight) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="配比步长">{{ result.generationConfig?.ratioStep }}</el-descriptions-item>
+            <el-descriptions-item label="短名单数">{{ result.generationConfig?.maxShortlistCoals }}</el-descriptions-item>
+            <el-descriptions-item label="煤种数">{{ result.generationConfig?.maxMaterialCount }}</el-descriptions-item>
+            <el-descriptions-item label="返回方案">{{ result.generationConfig?.maxReturnPlans }}</el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+
+        <el-card shadow="never" class="panel">
+          <template #header>Pareto 多目标分布</template>
+          <el-empty v-if="!paretoRows.length" description="暂无 Pareto 坐标" />
+          <div v-else ref="paretoChartRef" class="pareto-chart"></div>
+        </el-card>
+      </div>
+    </div>
+
+    <el-skeleton v-if="generating" :rows="8" animated class="panel" />
+    <el-empty v-else-if="!result" description="请选择订单后生成方案" />
+
+    <template v-else>
+      <el-alert
+        :type="decisionAlert.type"
+        :title="decisionAlert.title"
+        :description="result.decisionSummary"
+        show-icon
+        :closable="false"
+        class="decision-alert"
+      />
+
+      <el-card v-if="recommendedPlan?.plan" shadow="never" class="panel">
+        <template #header>
+          <div class="panel-head">
+            <span>{{ recommendedPlan.plan.planName || '推荐方案' }}</span>
+            <div class="tag-row">
+              <el-tag :type="decisionTagType(recommendedDecision)" effect="plain">
+                {{ decisionLabel(recommendedDecision) }}
+              </el-tag>
+              <el-tag v-if="recommendedPlan.plan.recommendationModeLabel" type="info" effect="plain">
+                {{ recommendedPlan.plan.recommendationModeLabel }}
+              </el-tag>
+              <el-tag v-else type="info" effect="plain">{{ result.recommendationModeLabel }}</el-tag>
+            </div>
+          </div>
+        </template>
+
+        <el-descriptions :column="3" border size="small" class="mb">
+          <el-descriptions-item label="Pareto Rank">{{ recommendedPlan.plan.paretoRank ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="综合评分">{{ formatNum(recommendedPlan.plan.overallScore) }}</el-descriptions-item>
+          <el-descriptions-item label="总成本">{{ formatNum(recommendedPlan.plan.totalCost) }}</el-descriptions-item>
+          <el-descriptions-item label="质量评分">{{ formatNum(recommendedPlan.plan.qualityScore) }}</el-descriptions-item>
+          <el-descriptions-item label="成本评分">{{ formatNum(recommendedPlan.plan.costScore) }}</el-descriptions-item>
+          <el-descriptions-item label="稳定性评分">{{ formatNum(recommendedPlan.plan.stabilityScore) }}</el-descriptions-item>
+          <el-descriptions-item label="吨煤成本">{{ formatNum(recommendedPlan.plan.objectiveCostPerTon) }}</el-descriptions-item>
+          <el-descriptions-item label="质量偏差">{{ formatNum(recommendedPlan.plan.objectiveQualityDeviation, 4) }}</el-descriptions-item>
+          <el-descriptions-item label="执行风险">{{ formatNum(recommendedPlan.plan.objectiveExecutionRisk, 4) }}</el-descriptions-item>
+          <el-descriptions-item label="预测灰分">{{ formatNum(recommendedMetrics.predictedAsh) }}</el-descriptions-item>
+          <el-descriptions-item label="预测硫分">{{ formatNum(recommendedMetrics.predictedSulfur) }}</el-descriptions-item>
+          <el-descriptions-item label="预测水分">{{ formatNum(recommendedMetrics.predictedMoisture) }}</el-descriptions-item>
+          <el-descriptions-item label="预测挥发分">{{ formatNum(recommendedMetrics.predictedVolatile) }}</el-descriptions-item>
+          <el-descriptions-item label="预测发热量">{{ formatNum(recommendedMetrics.predictedCalorific) }}</el-descriptions-item>
+          <el-descriptions-item label="评分策略">{{ result.generationConfig?.scoreStrategyLabel || '—' }}</el-descriptions-item>
+        </el-descriptions>
+
+        <PlanScoreRadar :plan="recommendedPlan.plan" class="mb" />
+
+        <div class="material-list mb">
+          <div
+            v-for="(detail, index) in recommendedPlan.details || []"
+            :key="`${detail.coalId || index}-${detail.productBatchNo || index}`"
+            class="material-row"
           >
-            生成推荐配煤方案
-          </el-button>
-          <span v-if="selectedOrder" class="sel">已选 id：{{ selectedOrder.id }}</span>
+            <div class="material-main">
+              <span class="material-name">{{ detail.coalName || `煤种${detail.coalId || index + 1}` }}</span>
+              <el-tag size="small" effect="plain">{{ ratioText(detail.blendRatio) }}</el-tag>
+            </div>
+            <div class="material-grid">
+              <span>批次：{{ detail.productBatchNo || '—' }}</span>
+              <span>用量：{{ formatNum(detail.useQuantity) }} 吨</span>
+              <span>单价：{{ formatNum(detail.unitCost) }}</span>
+              <span class="material-remark">说明：{{ detail.remark || '—' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <el-alert
+          v-if="recommendedDecision === 'RISKY'"
+          title="该方案仅供参考，需调整订单或库存后重新生成"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="mb"
+        />
+
+        <div v-if="recommendedDecision === 'FEASIBLE'" class="action-row">
+          <el-button type="success" :icon="Check" @click="onSelectRecommended">选择方案</el-button>
+          <el-button type="warning" :icon="VideoPlay" @click="onExecuteRecommended">执行方案</el-button>
         </div>
       </el-card>
-    </el-col>
 
-    <el-col :xs="24" :lg="14">
-      <el-card shadow="never" class="panel">
-        <template #header>生成结果（/blendPlan/generate）</template>
-        <el-empty v-if="!result && !generating" description="暂无结果，请选择订单后生成" />
-        <el-skeleton v-else-if="generating" :rows="6" animated />
-        <div v-else class="result result-scroll">
-          <div class="result-actions">
-            <el-button type="primary" plain @click="candidateDetailVisible = true">
-              查看候选方案详情
-            </el-button>
-            <span class="detail-hint">
-              AI候选 {{ result.aiCandidateResult?.plans?.length ?? 0 }} 个 ·
-              系统枚举 {{ result.constraints?.systemEnumerationEnabled ? systemEvaluatedCandidates.length : '已关闭' }}
-            </span>
-          </div>
-          <el-alert
-            v-if="result.explainSummary"
-            type="info"
-            :closable="false"
-            show-icon
-            class="mb ai-markdown-alert ai-summary-alert"
-          >
-            <template #title>解释摘要（完整，可滚动）</template>
-            <div class="ai-plain-full">{{ result.explainSummary }}</div>
-          </el-alert>
-          <div v-if="result.recommendedPlan" class="sub-title">推荐方案概要</div>
-          <el-descriptions
-            v-if="result.recommendedPlan?.plan"
-            :column="2"
-            border
-            size="small"
-            class="mb"
-          >
-            <el-descriptions-item label="方案编号">
-              {{ result.recommendedPlan.plan.planCode }}
-            </el-descriptions-item>
-            <el-descriptions-item label="状态">
-              {{ result.recommendedPlan.plan.planStatus }}
-            </el-descriptions-item>
-            <el-descriptions-item label="综合评分">
-              {{ result.recommendedPlan.plan.overallScore }}
-            </el-descriptions-item>
-            <el-descriptions-item label="总成本估计">
-              {{ result.recommendedPlan.plan.totalCost }}
-            </el-descriptions-item>
-            <el-descriptions-item label="可行性">
-              <el-tag :type="result.recommendedPlan.plan.feasibleFlag === 0 ? 'danger' : 'success'" size="small">
-                {{ result.recommendedPlan.plan.feasibleFlag === 0 ? '存在硬约束问题' : '满足硬约束' }}
-              </el-tag>
-            </el-descriptions-item>
-            <el-descriptions-item label="风险等级">
-              <el-tag :type="riskTagType(result.recommendedPlan.plan.riskLevel)" size="small">
-                {{ riskLabel(result.recommendedPlan.plan.riskLevel) }}
-              </el-tag>
-            </el-descriptions-item>
-            <el-descriptions-item label="候选来源">
-              <el-tag :type="candidateSourceTag(result.recommendedPlan.plan.candidateSource)" size="small">
-                {{ candidateSourceLabel(result.recommendedPlan.plan.candidateSource, result.recommendedPlan.plan) }}
-              </el-tag>
-            </el-descriptions-item>
-            <el-descriptions-item v-if="result.recommendedPlan.plan.aiModelName" label="解释模型">
-              {{ result.recommendedPlan.plan.aiModelName }}
-              <el-tag v-if="result.recommendedPlan.plan.aiGenerateFlag === 1" type="success" size="small" class="ml8"
-                >大模型生成</el-tag
-              >
-              <el-tag v-else type="info" size="small" class="ml8">兜底说明</el-tag>
-            </el-descriptions-item>
-            <el-descriptions-item v-if="result.constraints?.experimentCode" label="实验编号" :span="2">
-              {{ result.constraints.experimentCode }}
-            </el-descriptions-item>
-          </el-descriptions>
-          <div v-if="result.recommendedPlan?.plan" class="mb">
-            <div class="sub-title">方案评分雷达图</div>
-            <PlanScoreRadar :plan="result.recommendedPlan.plan" />
-          </div>
-
-          <!-- ── 多目标权重调节 ── -->
-          <el-card shadow="never" class="mb weight-panel">
-            <template #header>
-              <span class="sub-title" style="margin:0">多目标权重调节</span>
-              <el-tag size="small" type="info" effect="plain" style="margin-left: 8px">拖动滑块调整综合评分权重</el-tag>
-            </template>
-            <div class="weight-sliders">
-              <div class="weight-item">
-                <span class="weight-label">质量</span>
-                <el-slider
-                  v-model="qualityWeight"
-                  :min="10"
-                  :max="80"
-                  :step="5"
-                  show-input
-                  :format-tooltip="(v) => `${v}%`"
-                  size="small"
-                />
-              </div>
-              <div class="weight-item">
-                <span class="weight-label">成本</span>
-                <el-slider
-                  v-model="costWeight"
-                  :min="5"
-                  :max="60"
-                  :step="5"
-                  show-input
-                  :format-tooltip="(v) => `${v}%`"
-                  size="small"
-                />
-              </div>
-              <div class="weight-item">
-                <span class="weight-label">稳定性</span>
-                <el-slider
-                  v-model="stabilityWeight"
-                  :min="5"
-                  :max="60"
-                  :step="5"
-                  show-input
-                  :format-tooltip="(v) => `${v}%`"
-                  size="small"
-                />
-              </div>
+      <div class="candidate-work-grid">
+        <el-card shadow="never" class="panel">
+          <template #header>
+            <div class="panel-head">
+              <span>候选方案对比</span>
+              <el-tag type="info" effect="plain">{{ allEvaluationRows.length }} 个候选</el-tag>
             </div>
-            <div class="weight-note">
-              当前综合评分 = 质量×{{ normalizedWeights.q }}% + 成本×{{ normalizedWeights.c }}% + 稳定性×{{ normalizedWeights.s }}%
+          </template>
+          <el-empty v-if="!allEvaluationRows.length" description="暂无候选方案" />
+          <el-collapse
+            v-else
+            v-model="activeCandidateKey"
+            accordion
+            class="candidate-collapse"
+            @change="onCandidatePanelChange"
+          >
+            <el-collapse-item
+              v-for="row in allEvaluationRows"
+              :key="row.rowKey"
+              :name="row.rowKey"
+            >
+              <template #title>
+                <div class="candidate-title">
+                  <span class="candidate-name">{{ row.planName }}</span>
+                  <el-tag :type="decisionTagType(row.decisionStatus)" size="small">
+                    {{ decisionLabel(row.decisionStatus) }}
+                  </el-tag>
+                  <span class="candidate-meta">
+                    {{ row.candidateSourceLabel }} · Pareto {{ row.paretoRank ?? '—' }} · 综合 {{ formatNum(row.overallScore) }}
+                  </span>
+                </div>
+              </template>
+              <el-descriptions :column="3" border size="small" class="mb candidate-desc">
+                <el-descriptions-item label="来源">{{ row.candidateSourceLabel }}</el-descriptions-item>
+                <el-descriptions-item label="决策状态">{{ decisionLabel(row.decisionStatus) }}</el-descriptions-item>
+                <el-descriptions-item label="Pareto Rank">{{ row.paretoRank ?? '—' }}</el-descriptions-item>
+                <el-descriptions-item label="综合评分">{{ formatNum(row.overallScore) }}</el-descriptions-item>
+                <el-descriptions-item label="质量评分">{{ formatNum(row.qualityScore) }}</el-descriptions-item>
+                <el-descriptions-item label="成本评分">{{ formatNum(row.costScore) }}</el-descriptions-item>
+                <el-descriptions-item label="稳定性评分">{{ formatNum(row.stabilityScore) }}</el-descriptions-item>
+                <el-descriptions-item label="总成本">{{ formatNum(row.totalCost) }}</el-descriptions-item>
+                <el-descriptions-item label="吨煤成本">{{ formatNum(row.objectiveCostPerTon) }}</el-descriptions-item>
+                <el-descriptions-item label="质量偏差">{{ formatNum(row.objectiveQualityDeviation, 4) }}</el-descriptions-item>
+                <el-descriptions-item label="执行风险">{{ formatNum(row.objectiveExecutionRisk, 4) }}</el-descriptions-item>
+                <el-descriptions-item label="灰分">{{ formatNum(row.predictedAsh) }}</el-descriptions-item>
+                <el-descriptions-item label="硫分">{{ formatNum(row.predictedSulfur) }}</el-descriptions-item>
+                <el-descriptions-item label="水分">{{ formatNum(row.predictedMoisture) }}</el-descriptions-item>
+                <el-descriptions-item label="热值">{{ formatNum(row.predictedCalorific) }}</el-descriptions-item>
+                <el-descriptions-item label="主要问题" :span="3">
+                  <span class="wrap-text">{{ row.mainProblem }}</span>
+                </el-descriptions-item>
+              </el-descriptions>
+              <div v-if="row.details?.length" class="material-list">
+                <div
+                  v-for="(detail, index) in row.details"
+                  :key="`${row.rowKey}-${detail.coalId || index}-${detail.productBatchNo || index}`"
+                  class="material-row compact"
+                >
+                  <div class="material-main">
+                    <span class="material-name">{{ detail.coalName || `煤种${detail.coalId || index + 1}` }}</span>
+                    <el-tag size="small" effect="plain">{{ ratioText(detail.blendRatio) }}</el-tag>
+                  </div>
+                  <div class="material-grid">
+                    <span>批次：{{ detail.productBatchNo || '—' }}</span>
+                    <span>用量：{{ formatNum(detail.useQuantity) }} 吨</span>
+                    <span>单价：{{ formatNum(detail.unitCost) }}</span>
+                    <span class="material-remark">说明：{{ detail.remark || '—' }}</span>
+                  </div>
+                </div>
+              </div>
+            </el-collapse-item>
+          </el-collapse>
+        </el-card>
+
+        <div class="selected-stack">
+          <el-card shadow="never" class="panel">
+            <template #header>
+              <div class="panel-head">
+                <span>问题项</span>
+                <el-tag v-if="selectedCandidate" size="small" effect="plain">
+                  {{ selectedCandidate.planName }}
+                </el-tag>
+              </div>
+            </template>
+            <el-empty v-if="!selectedCandidate" description="请选择候选方案" />
+            <el-empty v-else-if="!problemPanelRows.length" description="该候选暂无结构化问题" />
+            <div v-else class="info-list">
+              <div v-for="row in problemPanelRows" :key="`${row.severity}-${row.type}-${row.message}`" class="info-row">
+                <div class="info-row-head">
+                  <el-tag :type="row.severity === 'BLOCKER' ? 'danger' : 'warning'" size="small">
+                    {{ row.severityLabel }}
+                  </el-tag>
+                  <strong>{{ row.typeLabel }}</strong>
+                  <span v-if="row.coalName" class="muted">{{ row.coalName }}</span>
+                </div>
+                <div class="wrap-text">{{ row.message }}</div>
+              </div>
             </div>
           </el-card>
 
-          <!-- ── Pareto 前沿散点图 ── -->
-          <ParetoScatter
-            v-if="paretoData.length > 0"
-            :plans="paretoData"
-            :recommended-plan-id="recommendedPlanParetoId"
-          />
-          <el-alert
-            v-if="result.recommendedPlan?.plan?.constraintSummary"
-            title="约束校验"
-            type="success"
-            :closable="false"
-            class="mb"
-          >
-            <div class="plain-text">{{ result.recommendedPlan.plan.constraintSummary }}</div>
-          </el-alert>
-          <el-alert
-            v-if="result.recommendedPlan?.plan?.scoreDetail"
-            title="评分明细"
-            type="info"
-            :closable="false"
-            class="mb"
-              >
-              <div class="plain-text">{{ result.recommendedPlan.plan.scoreDetail }}</div>
-            </el-alert>
-          <el-alert
-            v-if="result.recommendedPlan?.plan?.aiCandidateReason"
-            title="AI候选生成理由"
-            type="warning"
-            :closable="false"
-            class="mb"
-          >
-            <div class="plain-text">{{ result.recommendedPlan.plan.aiCandidateReason }}</div>
-          </el-alert>
-
-          <template v-if="result.recommendedPlan?.details?.length">
-            <div class="sub-title">推荐方案配比明细</div>
-            <el-table :data="result.recommendedPlan.details" border size="small" class="mb">
-              <el-table-column prop="coalName" label="煤种" min-width="120" show-overflow-tooltip />
-              <el-table-column prop="productBatchNo" label="产品批次" min-width="150" show-overflow-tooltip />
-              <el-table-column prop="blendRatio" label="配比" width="90">
-                <template #default="{ row }">
-                  {{ row.blendRatio != null ? `${Number(row.blendRatio * 100).toFixed(0)}%` : '—' }}
-                </template>
-              </el-table-column>
-              <el-table-column prop="useQuantity" label="用量(吨)" width="100" />
-              <el-table-column prop="unitCost" label="单价" width="90" />
-              <el-table-column prop="remark" label="库存说明" min-width="180" show-overflow-tooltip />
-            </el-table>
-          </template>
-
-          <template v-if="result.aiCandidateResult">
-            <div class="sub-title ai-block-title">
-              大模型候选方案生成
-              <el-tag type="warning" size="small" effect="plain">AI候选</el-tag>
-            </div>
-            <el-descriptions :column="2" border size="small" class="mb">
-              <el-descriptions-item label="候选模型">
-                {{ result.aiCandidateResult.modelName || '—' }}
-              </el-descriptions-item>
-              <el-descriptions-item label="模型候选数量">
-                {{ result.aiCandidateResult.plans?.length ?? 0 }}
-              </el-descriptions-item>
-              <el-descriptions-item label="接收状态">
-                <el-tag :type="result.constraints?.acceptedAiCandidateCount > 0 ? 'success' : 'info'" size="small">
-                  已接收 {{ result.constraints?.acceptedAiCandidateCount ?? 0 }} 个候选
+          <el-card shadow="never" class="panel">
+            <template #header>
+              <div class="panel-head">
+                <span>调整建议</span>
+                <el-tag v-if="selectedCandidate" size="small" effect="plain">
+                  {{ selectedCandidate.planName }}
                 </el-tag>
-              </el-descriptions-item>
-              <el-descriptions-item v-if="result.constraints?.aiCandidateError" label="候选错误">
-                {{ result.constraints.aiCandidateError }}
-              </el-descriptions-item>
-            </el-descriptions>
-            <el-table
-              v-if="result.aiCandidateResult.plans?.length"
-              :data="result.aiCandidateResult.plans"
-              border
-              size="small"
-              class="mb kb-table"
-            >
-              <el-table-column prop="planName" label="AI方案名" min-width="130" show-overflow-tooltip />
-              <el-table-column prop="strategy" label="策略" min-width="200" show-overflow-tooltip />
-              <el-table-column prop="risk" label="风险提示" min-width="160" show-overflow-tooltip />
-              <el-table-column label="配比建议" min-width="220" show-overflow-tooltip>
-                <template #default="{ row }">
-                  {{ formatAiItems(row.items) }}
-                </template>
-              </el-table-column>
-            </el-table>
-          </template>
-
-          <template v-if="result.knowledgeSummary">
-            <div class="sub-title">订单与知识摘要</div>
-            <el-descriptions :column="1" border size="small" class="mb">
-              <el-descriptions-item label="订单摘要">{{
-                result.knowledgeSummary.orderSummary || '—'
-              }}</el-descriptions-item>
-              <el-descriptions-item label="库存摘要">{{
-                result.knowledgeSummary.inventorySummary || '—'
-              }}</el-descriptions-item>
-              <el-descriptions-item v-if="result.knowledgeSummary.planSummary" label="方案摘要">{{
-                result.knowledgeSummary.planSummary
-              }}</el-descriptions-item>
-              <el-descriptions-item label="命中统计">
-                规则 {{ result.knowledgeSummary.ruleCount ?? 0 }} 条 · 案例
-                {{ result.knowledgeSummary.caseCount ?? 0 }} 条
-              </el-descriptions-item>
-            </el-descriptions>
-          </template>
-
-          <template v-if="result.ragRetrieveResult">
-            <div class="sub-title ai-block-title">
-              RAG 知识增强结果
-              <el-tag type="success" size="small" effect="plain">统一知识库</el-tag>
+              </div>
+            </template>
+            <el-empty v-if="!selectedCandidate" description="请选择候选方案" />
+            <el-empty v-else-if="!suggestionPanelRows.length" description="该候选暂无调整建议" />
+            <div v-else class="info-list">
+              <div v-for="row in suggestionPanelRows" :key="`${row.type}-${row.action}`" class="info-row">
+                <div class="info-row-head">
+                  <el-tag size="small" effect="plain">P{{ row.priority }}</el-tag>
+                  <strong>{{ row.action }}</strong>
+                </div>
+                <div class="wrap-text">{{ row.message }}</div>
+              </div>
             </div>
-            <el-descriptions :column="1" border size="small" class="mb">
+          </el-card>
+        </div>
+      </div>
+
+      <el-card shadow="never" class="panel">
+        <template #header>知识依据与解释</template>
+        <el-tabs>
+          <el-tab-pane label="规则依据">
+            <el-table v-if="result.matchedRules?.length" :data="result.matchedRules" border size="small">
+              <el-table-column prop="ruleName" label="规则名称" min-width="160" show-overflow-tooltip />
+              <el-table-column prop="ruleType" label="类型" width="120" />
+              <el-table-column prop="hitReason" label="命中原因" min-width="260" show-overflow-tooltip />
+            </el-table>
+            <el-empty v-else description="暂无命中规则" />
+          </el-tab-pane>
+          <el-tab-pane label="历史案例">
+            <el-table v-if="result.matchedCases?.length" :data="result.matchedCases" border size="small">
+              <el-table-column prop="caseName" label="案例名称" min-width="160" show-overflow-tooltip />
+              <el-table-column prop="summary" label="摘要" min-width="260" show-overflow-tooltip />
+              <el-table-column prop="matchReason" label="匹配原因" min-width="220" show-overflow-tooltip />
+            </el-table>
+            <el-empty v-else description="暂无参考案例" />
+          </el-tab-pane>
+          <el-tab-pane label="RAG 知识">
+            <el-descriptions v-if="result.ragRetrieveResult" :column="1" border size="small" class="mb">
               <el-descriptions-item label="检索关键词">
                 {{ result.ragRetrieveResult.keywords?.join('、') || '—' }}
               </el-descriptions-item>
@@ -281,415 +349,33 @@
                 {{ result.ragRetrieveResult.matchedKnowledgeIds?.join(', ') || '—' }}
               </el-descriptions-item>
             </el-descriptions>
-            <el-table
-              v-if="result.ragRetrieveResult.all?.length"
-              :data="result.ragRetrieveResult.all"
-              border
-              size="small"
-              class="mb kb-table"
-            >
-              <el-table-column prop="title" label="知识标题" min-width="150" show-overflow-tooltip />
-              <el-table-column prop="knowledgeType" label="类型" width="90" />
-              <el-table-column prop="hitReason" label="命中原因" min-width="180" show-overflow-tooltip />
+            <el-table v-if="result.ragRetrieveResult?.all?.length" :data="result.ragRetrieveResult.all" border size="small">
+              <el-table-column prop="title" label="知识标题" min-width="180" show-overflow-tooltip />
+              <el-table-column prop="knowledgeType" label="类型" width="110" />
+              <el-table-column prop="hitReason" label="命中原因" min-width="240" show-overflow-tooltip />
               <el-table-column prop="score" label="得分" width="80" align="right" />
             </el-table>
-          </template>
-
-          <template v-if="result.matchedRules?.length">
-            <div class="sub-title">命中规则（知识库）</div>
-            <el-table :data="result.matchedRules" border size="small" class="mb kb-table">
-              <el-table-column prop="ruleName" label="规则名称" min-width="130" show-overflow-tooltip />
-              <el-table-column prop="ruleType" label="类型" width="100" show-overflow-tooltip />
-              <el-table-column prop="hitReason" label="命中原因" min-width="220" show-overflow-tooltip />
-            </el-table>
-          </template>
-
-          <template v-if="result.matchedCases?.length">
-            <div class="sub-title">参考案例（知识库）</div>
-            <el-table :data="result.matchedCases" border size="small" class="mb kb-table">
-              <el-table-column prop="caseName" label="案例名称" min-width="120" show-overflow-tooltip />
-              <el-table-column prop="summary" label="摘要" min-width="180" show-overflow-tooltip />
-              <el-table-column prop="effectivenessEval" label="效果评价" width="90" show-overflow-tooltip />
-              <el-table-column prop="matchReason" label="匹配原因" min-width="160" show-overflow-tooltip />
-            </el-table>
-          </template>
-
-          <template v-if="result.ragExplanation">
-            <div class="sub-title ai-block-title">
-              RAG JSON 解释结果
-              <el-tag type="warning" size="small" effect="plain">JSON输出</el-tag>
-            </div>
-            <el-alert
-              v-if="result.ragExplanation.ruleBasis"
-              title="规则依据 ruleBasis"
-              type="success"
-              :closable="false"
-              show-icon
-              class="mb ai-markdown-alert"
-            >
-              <div class="ai-markdown-scroll">
-                <MarkdownContent :content="result.ragExplanation.ruleBasis" />
-              </div>
-            </el-alert>
-            <el-alert
-              v-if="result.ragExplanation.caseReference"
-              title="案例参考 caseReference"
-              type="info"
-              :closable="false"
-              show-icon
-              class="mb ai-markdown-alert"
-            >
-              <div class="ai-markdown-scroll">
-                <MarkdownContent :content="result.ragExplanation.caseReference" />
-              </div>
-            </el-alert>
-            <el-alert
-              v-if="result.ragExplanation.recommendReason"
-              title="推荐理由 recommendReason"
-              type="success"
-              :closable="false"
-              show-icon
-              class="mb ai-markdown-alert"
-            >
-              <div class="ai-markdown-scroll">
-                <MarkdownContent :content="result.ragExplanation.recommendReason" />
-              </div>
-            </el-alert>
-            <el-alert
-              v-if="result.ragExplanation.riskTip"
-              title="风险提示 riskTip"
-              type="warning"
-              :closable="false"
-              show-icon
-              class="mb ai-markdown-alert"
-            >
-              <div class="ai-markdown-scroll">
-                <MarkdownContent :content="result.ragExplanation.riskTip" />
-              </div>
-            </el-alert>
-            <el-alert
-              v-if="result.ragExplanation.explanation"
-              title="最终解释 finalExplanation"
-              type="info"
-              :closable="false"
-              show-icon
-              class="mb ai-markdown-alert"
-            >
-              <div class="ai-markdown-scroll">
-                <MarkdownContent :content="result.ragExplanation.explanation" />
-              </div>
-            </el-alert>
-          </template>
-
-          <template v-if="result.recommendedPlan?.plan">
-            <div class="sub-title ai-block-title">
-              方案JSON解释落库结果
-              <el-tag type="warning" size="small" effect="plain">RAG</el-tag>
-            </div>
-            <el-alert
-              v-if="result.recommendedPlan.plan.ruleBasis"
-              title="规则依据 ruleBasis"
-              type="success"
-              :closable="false"
-              show-icon
-              class="mb ai-markdown-alert"
-            >
-              <div class="ai-markdown-scroll">
-                <MarkdownContent :content="result.recommendedPlan.plan.ruleBasis" />
-              </div>
-            </el-alert>
-            <el-alert
-              v-if="result.recommendedPlan.plan.caseReference"
-              title="案例参考 caseReference"
-              type="info"
-              :closable="false"
-              show-icon
-              class="mb ai-markdown-alert"
-            >
-              <div class="ai-markdown-scroll">
-                <MarkdownContent :content="result.recommendedPlan.plan.caseReference" />
-              </div>
-            </el-alert>
-            <el-alert
-              v-if="result.recommendedPlan.plan.recommendReason"
-              title="推荐理由 recommendReason"
-              type="success"
-              :closable="false"
-              show-icon
-              class="mb ai-markdown-alert"
-            >
-              <div class="ai-markdown-scroll">
-                <MarkdownContent :content="result.recommendedPlan.plan.recommendReason" />
-              </div>
-            </el-alert>
-            <el-alert
-              v-if="result.recommendedPlan.plan.riskTip"
-              title="风险提示 riskTip"
-              type="warning"
-              :closable="false"
-              show-icon
-              class="mb ai-markdown-alert"
-            >
-              <div class="ai-markdown-scroll">
-                <MarkdownContent :content="result.recommendedPlan.plan.riskTip" />
-              </div>
-            </el-alert>
-            <el-alert
-              v-if="result.recommendedPlan.plan.finalExplanation || result.recommendedPlan.plan.explanation"
-              title="最终解释 finalExplanation"
-              type="info"
-              :closable="false"
-              show-icon
-              class="mb ai-markdown-alert"
-            >
-              <div class="ai-markdown-scroll">
-                <MarkdownContent :content="result.recommendedPlan.plan.finalExplanation || result.recommendedPlan.plan.explanation" />
-              </div>
-            </el-alert>
-          </template>
-
-          <template v-if="result.candidatePlans?.length">
-            <div class="sub-title">候选方案对比</div>
-            <el-collapse class="mb">
-              <el-collapse-item
-                v-for="(candidate, index) in result.candidatePlans"
-                :key="candidate.plan?.id || index"
-                :title="`${candidate.plan?.planName || '候选方案'}｜综合分 ${candidate.plan?.overallScore ?? '—'}｜总成本 ${candidate.plan?.totalCost ?? '—'}`"
-                :name="String(index)"
-              >
-                <el-descriptions v-if="candidate.plan" :column="2" border size="small" class="mb">
-                  <el-descriptions-item label="方案编号">
-                    {{ candidate.plan.planCode }}
-                  </el-descriptions-item>
-                  <el-descriptions-item label="状态">
-                    {{ candidate.plan.planStatus }}
-                  </el-descriptions-item>
-                  <el-descriptions-item label="质量分">
-                    {{ candidate.plan.qualityScore }}
-                  </el-descriptions-item>
-                  <el-descriptions-item label="成本分">
-                    {{ candidate.plan.costScore }}
-                  </el-descriptions-item>
-                  <el-descriptions-item label="稳定性分">
-                    {{ candidate.plan.stabilityScore }}
-                  </el-descriptions-item>
-                  <el-descriptions-item label="总成本">
-                    {{ candidate.plan.totalCost }}
-                  </el-descriptions-item>
-                  <el-descriptions-item label="可行性">
-                    <el-tag :type="candidate.plan.feasibleFlag === 0 ? 'danger' : 'success'" size="small">
-                      {{ candidate.plan.feasibleFlag === 0 ? '存在硬约束问题' : '满足硬约束' }}
-                    </el-tag>
-                  </el-descriptions-item>
-                  <el-descriptions-item label="风险等级">
-                    <el-tag :type="riskTagType(candidate.plan.riskLevel)" size="small">
-                      {{ riskLabel(candidate.plan.riskLevel) }}
-                    </el-tag>
-                  </el-descriptions-item>
-                  <el-descriptions-item label="候选来源">
-                    <el-tag :type="candidateSourceTag(candidate.plan.candidateSource)" size="small">
-                      {{ candidateSourceLabel(candidate.plan.candidateSource, candidate.plan) }}
-                    </el-tag>
-                  </el-descriptions-item>
-                </el-descriptions>
-                <PlanScoreRadar v-if="candidate.plan" :plan="candidate.plan" class="mb" />
-                <el-alert
-                  v-if="candidate.plan?.aiCandidateReason"
-                  title="AI候选生成理由"
-                  type="warning"
-                  :closable="false"
-                  class="mb"
-                >
-                  <div class="plain-text">{{ candidate.plan.aiCandidateReason }}</div>
-                </el-alert>
-                <el-alert
-                  v-if="candidate.plan?.constraintSummary"
-                  title="约束校验"
-                  type="success"
-                  :closable="false"
-                  class="mb"
-                >
-                  <div class="plain-text">{{ candidate.plan.constraintSummary }}</div>
-                </el-alert>
-                <el-alert
-                  v-if="candidate.plan?.scoreDetail"
-                  title="评分明细"
-                  type="info"
-                  :closable="false"
-                  class="mb"
-                >
-                  <div class="plain-text">{{ candidate.plan.scoreDetail }}</div>
-                </el-alert>
-                <el-table v-if="candidate.details?.length" :data="candidate.details" border size="small">
-                  <el-table-column prop="coalName" label="煤种" min-width="120" show-overflow-tooltip />
-                  <el-table-column prop="productBatchNo" label="产品批次" min-width="150" show-overflow-tooltip />
-                  <el-table-column prop="blendRatio" label="配比" width="90">
-                    <template #default="{ row }">
-                      {{ row.blendRatio != null ? `${Number(row.blendRatio * 100).toFixed(0)}%` : '—' }}
-                    </template>
-                  </el-table-column>
-                  <el-table-column prop="useQuantity" label="用量(吨)" width="100" />
-                  <el-table-column prop="unitCost" label="单价" width="90" />
-                  <el-table-column prop="remark" label="库存说明" min-width="180" show-overflow-tooltip />
-                </el-table>
-              </el-collapse-item>
-            </el-collapse>
-          </template>
-        </div>
+            <el-empty v-else description="暂无 RAG 命中" />
+          </el-tab-pane>
+          <el-tab-pane label="AI 解释">
+            <div v-if="result.explainSummary" class="plain-text mb">{{ result.explainSummary }}</div>
+            <MarkdownContent v-if="result.ragExplanation?.explanation" :content="result.ragExplanation.explanation" />
+            <el-empty v-if="!result.explainSummary && !result.ragExplanation?.explanation" description="暂无 AI 解释" />
+          </el-tab-pane>
+        </el-tabs>
       </el-card>
-    </el-col>
-  </el-row>
-
-  <el-drawer
-    v-model="candidateDetailVisible"
-    title="候选方案生成详情"
-    size="76%"
-    destroy-on-close
-  >
-    <div class="candidate-detail">
-      <el-alert
-        title="说明"
-        type="info"
-        :closable="false"
-        class="mb"
-      >
-        <div class="plain-text">
-          本页将大模型原始候选和系统枚举候选分开展示。系统枚举部分展示当前接口返回并落库的推荐/候选方案；如果需要展示后端内部全部枚举草稿，需要继续扩展后端响应。
-        </div>
-      </el-alert>
-
-      <div class="detail-section-title">
-        大模型生成候选
-        <el-tag type="warning" effect="plain" size="small">
-          原始 {{ result?.aiCandidateResult?.plans?.length ?? 0 }} 个
-        </el-tag>
-        <el-tag type="success" effect="plain" size="small">
-          已评分 {{ aiEvaluatedCandidates.length }} 个
-        </el-tag>
-      </div>
-
-      <el-descriptions v-if="result?.aiCandidateResult" :column="2" border size="small" class="mb">
-        <el-descriptions-item label="调用模型">
-          {{ result.aiCandidateResult.modelName || '—' }}
-        </el-descriptions-item>
-        <el-descriptions-item label="接收数量">
-          {{ result.constraints?.acceptedAiCandidateCount ?? 0 }}
-        </el-descriptions-item>
-        <el-descriptions-item v-if="result.constraints?.aiCandidateError" label="错误信息" :span="2">
-          {{ result.constraints.aiCandidateError }}
-        </el-descriptions-item>
-      </el-descriptions>
-
-      <el-empty
-        v-if="!result?.aiCandidateResult?.plans?.length"
-        description="本次未返回大模型候选方案"
-        class="detail-empty"
-      />
-      <el-table
-        v-else
-        :data="result.aiCandidateResult.plans"
-        border
-        size="small"
-        class="mb"
-      >
-        <el-table-column type="expand">
-          <template #default="{ row }">
-            <el-table :data="formatAiDetailRows(row.items)" border size="small" class="inner-table">
-              <el-table-column prop="coalName" label="煤种" min-width="130" show-overflow-tooltip />
-              <el-table-column prop="productBatchNo" label="产品批次" min-width="170" show-overflow-tooltip />
-              <el-table-column prop="ratio" label="配比" width="90">
-                <template #default="{ row: detail }">
-                  {{ detail.ratio != null ? `${Number(detail.ratio * 100).toFixed(0)}%` : '—' }}
-                </template>
-              </el-table-column>
-              <el-table-column prop="useQuantity" label="用量(吨)" width="100" />
-              <el-table-column prop="unitCost" label="单价" width="90" />
-              <el-table-column prop="remark" label="库存说明" min-width="260" show-overflow-tooltip />
-            </el-table>
-          </template>
-        </el-table-column>
-        <el-table-column prop="planName" label="AI方案名" min-width="150" show-overflow-tooltip />
-        <el-table-column prop="strategy" label="生成策略" min-width="220" show-overflow-tooltip />
-        <el-table-column label="配比建议" min-width="260" show-overflow-tooltip>
-          <template #default="{ row }">
-            {{ formatAiItems(row.items) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="risk" label="AI风险提示" min-width="220" show-overflow-tooltip />
-      </el-table>
-
-      <template v-if="aiEvaluatedCandidates.length">
-        <div class="detail-sub-title">AI候选经系统校验与评分后的结果</div>
-        <el-collapse class="mb">
-          <el-collapse-item
-            v-for="(candidate, index) in aiEvaluatedCandidates"
-            :key="`ai-eval-${index}`"
-            :title="formatEvaluationTitle(candidate, index)"
-            :name="`ai-${index}`"
-          >
-            <CandidatePlanDetail
-              :candidate="candidate"
-              :risk-label="riskLabel"
-              :risk-tag-type="riskTagType"
-              :candidate-source-label="candidateSourceLabel"
-              :candidate-source-tag="candidateSourceTag"
-            />
-          </el-collapse-item>
-        </el-collapse>
-      </template>
-
-      <div class="detail-section-title">
-        系统枚举生成候选
-        <el-tag
-          :type="result?.constraints?.systemEnumerationEnabled ? 'info' : 'warning'"
-          effect="plain"
-          size="small"
-        >
-          {{ result?.constraints?.systemEnumerationEnabled ? `${systemEvaluatedCandidates.length} 个` : '当前已关闭' }}
-        </el-tag>
-      </div>
-      <el-alert
-        v-if="!result?.constraints?.systemEnumerationEnabled"
-        title="系统枚举已临时禁用"
-        type="warning"
-        :closable="false"
-        class="mb"
-      >
-        <div class="plain-text">
-          当前仅使用大模型候选方案，并继续采用系统原有质量、成本、库存稳定性评分标准。后续可通过后端配置恢复系统枚举，用于与 AI 优化结果对比。
-        </div>
-      </el-alert>
-      <el-empty
-        v-if="result?.constraints?.systemEnumerationEnabled && !systemEvaluatedCandidates.length"
-        description="当前返回结果中没有系统枚举候选评分"
-        class="detail-empty"
-      />
-      <el-collapse v-else class="mb">
-        <el-collapse-item
-          v-for="(candidate, index) in systemEvaluatedCandidates"
-          :key="`system-eval-${index}`"
-          :title="formatEvaluationTitle(candidate, index)"
-          :name="`system-${index}`"
-        >
-          <CandidatePlanDetail
-            :candidate="candidate"
-            :risk-label="riskLabel"
-            :risk-tag-type="riskTagType"
-            :candidate-source-label="candidateSourceLabel"
-            :candidate-source-tag="candidateSourceTag"
-          />
-        </el-collapse-item>
-      </el-collapse>
-    </div>
-  </el-drawer>
+    </template>
+  </div>
 </template>
 
 <script setup>
-import { computed, defineComponent, h, onMounted, ref, resolveComponent } from 'vue'
+import { Check, Cpu, Refresh, Setting, VideoPlay } from '@element-plus/icons-vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import * as echarts from 'echarts'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import MarkdownContent from '@/components/MarkdownContent.vue'
-import ParetoScatter from '@/components/ParetoScatter.vue'
 import PlanScoreRadar from '@/components/PlanScoreRadar.vue'
-import { generateBlendPlan } from '@/api/blendPlan'
+import { executeBlendPlan, generateBlendPlan, selectBlendPlan } from '@/api/blendPlan'
 import { fetchOrderPage } from '@/api/order'
 import { auth } from '@/stores/auth'
 
@@ -698,293 +384,74 @@ const orders = ref([])
 const selectedOrder = ref(null)
 const generating = ref(false)
 const result = ref(null)
-const candidateScope = ref('coal_type')
-const candidateDetailVisible = ref(false)
+const selectedCandidate = ref(null)
+const activeCandidateKey = ref('')
+const paretoChartRef = ref(null)
+let paretoChart = null
 
-// ── 多目标评分权重（当前为展示用，后续可扩展为后端 API 参数） ──
-const qualityWeight = ref(50)
-const costWeight = ref(20)
-const stabilityWeight = ref(30)
+const candidateScopeOptions = [
+  { label: '煤种级', value: 'coal_type' },
+  { label: '产品批次级', value: 'product_batch' },
+]
 
-// 归一化权重（保证三者和为 100）
-const normalizedWeights = computed(() => {
-  const sum = qualityWeight.value + costWeight.value + stabilityWeight.value
-  if (sum === 0) return { q: 50, c: 20, s: 30 }
-  return {
-    q: Math.round((qualityWeight.value / sum) * 100),
-    c: Math.round((costWeight.value / sum) * 100),
-    s: 100 - Math.round((qualityWeight.value / sum) * 100) - Math.round((costWeight.value / sum) * 100),
+const form = ref({
+  candidateScope: 'coal_type',
+  scoreStrategy: 'BALANCED',
+  ratioStep: 0.05,
+  maxShortlistCoals: 8,
+  maxMaterialCount: 3,
+  maxReturnPlans: 6,
+})
+
+const recommendedPlan = computed(() => result.value?.recommendedPlan || null)
+const recommendedDecision = computed(() => decisionStatus(recommendedPlan.value?.plan))
+const recommendedMetrics = computed(() => firstDetailMetrics(recommendedPlan.value?.details || []))
+
+const decisionAlert = computed(() => {
+  const mode = result.value?.recommendationMode
+  if (mode === 'NORMAL') {
+    return { type: 'success', title: '已生成可执行推荐方案' }
   }
+  if (mode === 'RISK_REFERENCE') {
+    return { type: 'warning', title: '当前无完全可行方案，以下为风险最小参考方案' }
+  }
+  return { type: 'error', title: '当前约束下无法生成可执行方案' }
 })
 
-const persistedPlans = computed(() => {
-  if (!result.value) return []
-  return [result.value.recommendedPlan, ...(result.value.candidatePlans || [])].filter(Boolean)
+const allEvaluationRows = computed(() => {
+  const aiRows = (result.value?.aiEvaluatedCandidates || []).map((row, index) =>
+    normalizeEvaluationRow(row, index, 'ai'),
+  )
+  const systemRows = (result.value?.systemEvaluatedCandidates || []).map((row, index) =>
+    normalizeEvaluationRow(row, index, 'system'),
+  )
+  return [...aiRows, ...systemRows]
 })
 
-const aiAcceptedPlans = computed(() =>
-  persistedPlans.value.filter((item) => item?.plan?.candidateSource === 'ai'),
+const paretoRows = computed(() =>
+  allEvaluationRows.value.filter(
+    (row) =>
+      row.objectiveCostPerTon != null &&
+      row.objectiveQualityDeviation != null &&
+      row.objectiveExecutionRisk != null,
+  ),
 )
 
-const systemGeneratedPlans = computed(() =>
-  persistedPlans.value.filter((item) => item?.plan?.candidateSource !== 'ai'),
-)
-
-const aiEvaluatedCandidates = computed(() => {
-  const rows = result.value?.aiEvaluatedCandidates || []
-  return rows.map((row) => normalizeEvaluationCandidate(row))
+const problemPanelRows = computed(() => {
+  const rows = parseItems(selectedCandidate.value?.problemItems) || []
+  return distinctBy(rows, (row) => `${row.severity}|${row.type}|${row.message}`)
 })
 
-const systemEvaluatedCandidates = computed(() => {
-  const rows = result.value?.systemEvaluatedCandidates || []
-  return rows.map((row) => normalizeEvaluationCandidate(row))
-})
-
-const materialLookup = computed(() => {
-  const map = new Map()
-  for (const plan of persistedPlans.value) {
-    for (const detail of plan.details || []) {
-      if (detail.productBatchNo) {
-        map.set(`PB:${detail.productBatchNo}`, detail)
-      }
-      if (detail.coalId != null && !map.has(`COAL:${detail.coalId}`)) {
-        map.set(`COAL:${detail.coalId}`, detail)
-      }
-    }
-  }
-  return map
-})
-
-// ── Pareto 散点图数据：从 persistedPlans 提取质量/成本 ──
-const paretoData = computed(() => {
-  return persistedPlans.value.map((item) => {
-    const plan = item.plan || {}
-    return {
-      plan: {
-        id: plan.id,
-        planName: plan.planName,
-        planCode: plan.planCode,
-        totalCost: plan.totalCost,
-        qualityScore: plan.qualityScore,
-        costScore: plan.costScore,
-        stabilityScore: plan.stabilityScore,
-        overallScore: plan.overallScore,
-        feasibleFlag: plan.feasibleFlag,
-      },
-      demandQuantity: result.value?.order?.demandQuantity || 1,
-    }
-  })
-})
-
-const recommendedPlanParetoId = computed(() => {
-  return result.value?.recommendedPlan?.plan?.id || null
+const suggestionPanelRows = computed(() => {
+  const rows = parseItems(selectedCandidate.value?.suggestionItems) || []
+  return distinctBy(rows, (row) => `${row.type}|${row.action}|${row.message}`).sort(
+    (a, b) => (a.priority ?? 99) - (b.priority ?? 99),
+  )
 })
 
 function onSelectOrder(row) {
   selectedOrder.value = row || null
 }
-
-function riskLabel(level) {
-  const map = {
-    low: '低风险',
-    medium: '中风险',
-    high: '高风险',
-  }
-  return map[level] || level || '—'
-}
-
-function riskTagType(level) {
-  if (level === 'high') return 'danger'
-  if (level === 'medium') return 'warning'
-  if (level === 'low') return 'success'
-  return 'info'
-}
-
-function candidateSourceLabel(source, plan = {}) {
-  if (source === 'ai') {
-    const modelName =
-      plan.candidateModelName ||
-      result.value?.aiCandidateResult?.modelName ||
-      result.value?.constraints?.experimentModelName ||
-      plan.aiModelName
-    return modelName ? `大模型候选（${modelName}）` : '大模型候选'
-  }
-  const map = {
-    system: '系统枚举',
-    hybrid: '混合生成',
-  }
-  return map[source] || source || '系统枚举'
-}
-
-function candidateSourceTag(source) {
-  if (source === 'ai') return 'warning'
-  if (source === 'hybrid') return 'success'
-  return 'info'
-}
-
-function formatAiItems(items = []) {
-  if (!items.length) return '—'
-  return items
-    .map((item) => {
-      const name = item.productBatchNo || `煤种${item.coalId ?? '—'}`
-      const ratio = item.ratio != null ? `${Number(item.ratio * 100).toFixed(0)}%` : '—'
-      return `${name} ${ratio}`
-    })
-    .join(' + ')
-}
-
-function findMaterialForAiItem(item) {
-  if (item?.productBatchNo && materialLookup.value.has(`PB:${item.productBatchNo}`)) {
-    return materialLookup.value.get(`PB:${item.productBatchNo}`)
-  }
-  if (item?.coalId != null && materialLookup.value.has(`COAL:${item.coalId}`)) {
-    return materialLookup.value.get(`COAL:${item.coalId}`)
-  }
-  return null
-}
-
-function formatAiDetailRows(items = []) {
-  const demand = Number(result.value?.order?.demandQuantity || 0)
-  return items.map((item) => {
-    const material = findMaterialForAiItem(item)
-    const ratio = item.ratio != null ? Number(item.ratio) : null
-    const useQuantity = ratio != null && demand > 0 ? Number((demand * ratio).toFixed(2)) : '—'
-    return {
-      coalName: material?.coalName || (item.coalId != null ? `煤种${item.coalId}` : '—'),
-      productBatchNo: item.productBatchNo || material?.productBatchNo || '—',
-      ratio,
-      useQuantity,
-      unitCost: material?.unitCost ?? '—',
-      remark: material?.remark || item.reason || '—',
-    }
-  })
-}
-
-function formatPlanTitle(candidate, index) {
-  const plan = candidate?.plan || {}
-  const source = candidateSourceLabel(plan.candidateSource, plan)
-  return `${index + 1}. ${plan.planName || '候选方案'}｜${source}｜综合分 ${plan.overallScore ?? '—'}｜总成本 ${plan.totalCost ?? '—'}`
-}
-
-function formatEvaluationTitle(candidate, index) {
-  const plan = candidate?.plan || {}
-  const source = candidateSourceLabel(plan.candidateSource, plan)
-  const feasible = plan.feasibleFlag === 0 ? '不可行' : '可行'
-  return `${index + 1}. ${plan.planName || '候选方案'}｜${source}｜${feasible}｜综合分 ${plan.overallScore ?? '—'}｜质量 ${plan.qualityScore ?? '—'}｜成本 ${plan.costScore ?? '—'}｜稳定 ${plan.stabilityScore ?? '—'}`
-}
-
-function normalizeEvaluationCandidate(row) {
-  return {
-    plan: {
-      planName: row.planName,
-      candidateSource: row.candidateSource,
-      aiCandidateReason: row.aiCandidateReason,
-      totalCost: row.totalCost,
-      qualityScore: row.qualityScore,
-      costScore: row.costScore,
-      stabilityScore: row.stabilityScore,
-      overallScore: row.overallScore,
-      candidateModelName: result.value?.aiCandidateResult?.modelName || result.value?.constraints?.experimentModelName,
-      feasibleFlag: row.feasibleFlag,
-      constraintSummary: row.constraintSummary,
-      scoreDetail: row.scoreDetail,
-      riskLevel: row.riskLevel,
-      riskTip: row.riskTip,
-    },
-    details: row.details || [],
-  }
-}
-
-const CandidatePlanDetail = defineComponent({
-  name: 'CandidatePlanDetail',
-  props: {
-    candidate: { type: Object, required: true },
-    riskLabel: { type: Function, required: true },
-    riskTagType: { type: Function, required: true },
-    candidateSourceLabel: { type: Function, required: true },
-    candidateSourceTag: { type: Function, required: true },
-  },
-  setup(props) {
-    const ElAlert = resolveComponent('el-alert')
-    const ElDescriptions = resolveComponent('el-descriptions')
-    const ElDescriptionsItem = resolveComponent('el-descriptions-item')
-    const ElTable = resolveComponent('el-table')
-    const ElTableColumn = resolveComponent('el-table-column')
-    const ElTag = resolveComponent('el-tag')
-    const ratioText = (value) => (value != null ? `${Number(value * 100).toFixed(0)}%` : '—')
-    return () => {
-      const plan = props.candidate.plan || {}
-      return h('div', { class: 'detail-plan' }, [
-        h(
-          ElDescriptions,
-          { column: 3, border: true, size: 'small', class: 'mb' },
-          {
-            default: () => [
-              h(ElDescriptionsItem, { label: '方案编号' }, () => plan.planCode || '—'),
-              h(ElDescriptionsItem, { label: '综合分' }, () => plan.overallScore ?? '—'),
-              h(ElDescriptionsItem, { label: '总成本' }, () => plan.totalCost ?? '—'),
-              h(ElDescriptionsItem, { label: '质量分' }, () => plan.qualityScore ?? '—'),
-              h(ElDescriptionsItem, { label: '成本分' }, () => plan.costScore ?? '—'),
-              h(ElDescriptionsItem, { label: '稳定性分' }, () => plan.stabilityScore ?? '—'),
-              h(ElDescriptionsItem, { label: '可行性' }, () =>
-                h(
-                  ElTag,
-                  { type: plan.feasibleFlag === 0 ? 'danger' : 'success', size: 'small' },
-                  () => (plan.feasibleFlag === 0 ? '存在硬约束问题' : '满足硬约束'),
-                ),
-              ),
-              h(ElDescriptionsItem, { label: '风险等级' }, () =>
-                h(
-                  ElTag,
-                  { type: props.riskTagType(plan.riskLevel), size: 'small' },
-                  () => props.riskLabel(plan.riskLevel),
-                ),
-              ),
-              h(ElDescriptionsItem, { label: '候选来源' }, () =>
-                h(
-                  ElTag,
-                  { type: props.candidateSourceTag(plan.candidateSource), size: 'small' },
-                  () => props.candidateSourceLabel(plan.candidateSource, plan),
-                ),
-              ),
-            ],
-          },
-        ),
-        plan.aiCandidateReason
-          ? h(ElAlert, { title: 'AI候选生成理由', type: 'warning', closable: false, class: 'mb' }, {
-              default: () => h('div', { class: 'plain-text' }, plan.aiCandidateReason),
-            })
-          : null,
-        plan.constraintSummary
-          ? h(ElAlert, { title: '约束校验', type: 'success', closable: false, class: 'mb' }, {
-              default: () => h('div', { class: 'plain-text' }, plan.constraintSummary),
-            })
-          : null,
-        plan.scoreDetail
-          ? h(ElAlert, { title: '评分明细', type: 'info', closable: false, class: 'mb' }, {
-              default: () => h('div', { class: 'plain-text' }, plan.scoreDetail),
-            })
-          : null,
-        h(
-          ElTable,
-          { data: props.candidate.details || [], border: true, size: 'small' },
-          {
-            default: () => [
-              h(ElTableColumn, { prop: 'coalName', label: '煤种', minWidth: 130, showOverflowTooltip: true }),
-              h(ElTableColumn, { prop: 'productBatchNo', label: '产品批次', minWidth: 170, showOverflowTooltip: true }),
-              h(ElTableColumn, { prop: 'blendRatio', label: '配比', width: 90 }, {
-                default: ({ row }) => ratioText(row.blendRatio),
-              }),
-              h(ElTableColumn, { prop: 'useQuantity', label: '用量(吨)', width: 100 }),
-              h(ElTableColumn, { prop: 'unitCost', label: '单价', width: 90 }),
-              h(ElTableColumn, { prop: 'remark', label: '库存说明', minWidth: 220, showOverflowTooltip: true }),
-            ],
-          },
-        ),
-      ])
-    }
-  },
-})
 
 async function loadOrders() {
   orderLoading.value = true
@@ -1000,150 +467,509 @@ async function onGenerate() {
   if (!selectedOrder.value) return
   generating.value = true
   result.value = null
+  selectedCandidate.value = null
+  activeCandidateKey.value = ''
+  disposeParetoChart()
   try {
     result.value = await generateBlendPlan({
       orderId: selectedOrder.value.id,
       createBy: auth.userId ?? undefined,
-      candidateScope: candidateScope.value,
+      candidateScope: form.value.candidateScope,
+      scoreStrategy: form.value.scoreStrategy,
+      ratioStep: form.value.ratioStep,
+      maxShortlistCoals: form.value.maxShortlistCoals,
+      maxMaterialCount: form.value.maxMaterialCount,
+      maxReturnPlans: form.value.maxReturnPlans,
     })
   } finally {
     generating.value = false
   }
 }
 
-onMounted(loadOrders)
+function onCandidatePanelChange(name) {
+  const key = Array.isArray(name) ? name[0] : name
+  const row = allEvaluationRows.value.find((item) => item.rowKey === key)
+  const fallback = selectedCandidate.value || allEvaluationRows.value[0]
+  selectedCandidate.value = row || fallback || null
+  activeCandidateKey.value = selectedCandidate.value?.rowKey || ''
+}
+
+async function onSelectRecommended() {
+  const planId = recommendedPlan.value?.plan?.id
+  if (!planId) return
+  await selectBlendPlan(planId)
+  ElMessage.success('已选择该方案')
+}
+
+async function onExecuteRecommended() {
+  const planId = recommendedPlan.value?.plan?.id
+  if (!planId) return
+  const { value } = await ElMessageBox.prompt('请输入执行入库仓库编码', '执行方案', {
+    confirmButtonText: '执行',
+    cancelButtonText: '取消',
+    inputValue: 'WH-FINAL',
+  })
+  await executeBlendPlan({ planId, warehouseCode: value, operatorName: auth.username || 'system' })
+  ElMessage.success('方案已执行')
+}
+
+function normalizeEvaluationRow(row, index, fallbackSource) {
+  const details = row.details || []
+  const metrics = firstDetailMetrics(details)
+  const status = decisionStatus(row)
+  return {
+    ...row,
+    rowKey: `${fallbackSource}-${index}`,
+    candidateSource: row.candidateSource || fallbackSource,
+    candidateSourceLabel: candidateSourceLabel(row.candidateSource || fallbackSource),
+    planName: row.planName || (fallbackSource === 'ai' ? 'AI候选方案' : '系统枚举方案'),
+    decisionStatus: status,
+    decisionStatusLabel: row.decisionStatusLabel || decisionLabel(status),
+    totalCost: numberOrNull(row.totalCost),
+    qualityScore: numberOrNull(row.qualityScore),
+    costScore: numberOrNull(row.costScore),
+    stabilityScore: numberOrNull(row.stabilityScore),
+    overallScore: numberOrNull(row.overallScore),
+    objectiveCostPerTon: numberOrNull(row.objectiveCostPerTon),
+    objectiveQualityDeviation: numberOrNull(row.objectiveQualityDeviation),
+    objectiveExecutionRisk: numberOrNull(row.objectiveExecutionRisk),
+    predictedAsh: metrics.predictedAsh,
+    predictedSulfur: metrics.predictedSulfur,
+    predictedMoisture: metrics.predictedMoisture,
+    predictedCalorific: metrics.predictedCalorific,
+    mainProblem: (row.problemItems || []).map((item) => item.typeLabel || item.message).filter(Boolean).join('；') || '—',
+  }
+}
+
+function firstDetailMetrics(details) {
+  const row = details?.[0] || {}
+  return {
+    predictedAsh: numberOrNull(row.predictedAsh),
+    predictedSulfur: numberOrNull(row.predictedSulfur),
+    predictedMoisture: numberOrNull(row.predictedMoisture),
+    predictedVolatile: numberOrNull(row.predictedVolatile),
+    predictedCalorific: numberOrNull(row.predictedCalorific),
+  }
+}
+
+function renderParetoChart(retry = 0) {
+  if (!paretoChartRef.value || !paretoRows.value.length) {
+    disposeParetoChart()
+    return
+  }
+  const box = paretoChartRef.value.getBoundingClientRect()
+  if (box.width <= 0 || box.height <= 0) {
+    if (retry < 5) {
+      scheduleParetoRender(retry + 1)
+    }
+    return
+  }
+  if (!paretoChart) {
+    paretoChart = echarts.init(paretoChartRef.value)
+  }
+  const data = paretoRows.value.map((row) => ({
+    value: [
+      row.objectiveCostPerTon,
+      row.objectiveQualityDeviation,
+      row.overallScore,
+      row.objectiveExecutionRisk,
+    ],
+    row,
+    itemStyle: { color: decisionColor(row.decisionStatus) },
+  }))
+  paretoChart.setOption({
+    grid: { left: 58, right: 28, top: 46, bottom: 56 },
+    tooltip: {
+      trigger: 'item',
+      appendToBody: true,
+      confine: true,
+      extraCssText: 'z-index: 3000; max-width: 260px; white-space: normal;',
+      formatter: ({ data }) => {
+        const row = data.row
+        return [
+          `<b>${row.planName}</b>`,
+          `来源：${row.candidateSourceLabel}`,
+          `决策状态：${decisionLabel(row.decisionStatus)}`,
+          `Pareto Rank：${row.paretoRank ?? '—'}`,
+          `综合评分：${formatNum(row.overallScore)}`,
+          `吨煤成本：${formatNum(row.objectiveCostPerTon)}`,
+          `质量偏差：${formatNum(row.objectiveQualityDeviation, 4)}`,
+          `执行风险：${formatNum(row.objectiveExecutionRisk, 4)}`,
+        ].join('<br/>')
+      },
+    },
+    xAxis: { type: 'value', name: '吨煤成本', nameLocation: 'middle', nameGap: 34 },
+    yAxis: { type: 'value', name: '质量偏差', nameLocation: 'middle', nameGap: 42 },
+    series: [
+      {
+        type: 'scatter',
+        data,
+        symbolSize: (value) => Math.max(8, 24 - Number(value?.[3] || 0) * 14),
+      },
+    ],
+    animation: false,
+  })
+  paretoChart.resize()
+}
+
+function resizeParetoChart() {
+  paretoChart?.resize()
+}
+
+function scheduleParetoRender(retry = 0) {
+  nextTick(() => {
+    window.requestAnimationFrame(() => {
+      renderParetoChart(retry)
+    })
+  })
+}
+
+function disposeParetoChart() {
+  paretoChart?.dispose()
+  paretoChart = null
+}
+
+function decisionStatus(row) {
+  if (!row) return null
+  if (row?.decisionStatus) return row.decisionStatus
+  if (row?.feasibleFlag === 0) return 'INFEASIBLE'
+  return 'FEASIBLE'
+}
+
+function decisionLabel(status) {
+  const map = { FEASIBLE: '可执行', RISKY: '风险参考', INFEASIBLE: '不可执行' }
+  return map[status] || '—'
+}
+
+function decisionTagType(status) {
+  if (status === 'FEASIBLE') return 'success'
+  if (status === 'RISKY') return 'warning'
+  if (status === 'INFEASIBLE') return 'danger'
+  return 'info'
+}
+
+function decisionColor(status) {
+  if (status === 'FEASIBLE') return '#2f9e75'
+  if (status === 'RISKY') return '#f59e0b'
+  return '#dc2626'
+}
+
+function candidateSourceLabel(source) {
+  if (source === 'ai') return '大模型'
+  if (source === 'hybrid') return '混合'
+  return '系统枚举'
+}
+
+function ratioText(value) {
+  return value != null ? `${Number(value * 100).toFixed(0)}%` : '—'
+}
+
+function percent(value) {
+  return value != null ? `${Math.round(Number(value) * 100)}%` : '—'
+}
+
+function formatNum(value, digits = 2) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n.toFixed(digits).replace(/\.?0+$/, '') : '—'
+}
+
+function numberOrNull(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function parseItems(value) {
+  if (!value) return []
+  if (Array.isArray(value)) return value
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+function distinctBy(rows, keyFn) {
+  const map = new Map()
+  for (const row of rows || []) {
+    map.set(keyFn(row), row)
+  }
+  return [...map.values()]
+}
+
+watch(allEvaluationRows, (rows) => {
+  if (!rows.length) {
+    selectedCandidate.value = null
+    activeCandidateKey.value = ''
+    return
+  }
+  const current = rows.find((row) => row.rowKey === activeCandidateKey.value)
+  const next = current || rows[0]
+  selectedCandidate.value = next
+  activeCandidateKey.value = next.rowKey
+}, { immediate: true })
+
+watch(paretoRows, () => scheduleParetoRender(), { deep: true, flush: 'post' })
+watch(result, () => scheduleParetoRender(), { flush: 'post' })
+
+onMounted(() => {
+  loadOrders()
+  window.addEventListener('resize', resizeParetoChart)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', resizeParetoChart)
+  disposeParetoChart()
+})
 </script>
 
 <style scoped>
+.blend-cockpit {
+  display: grid;
+  gap: 16px;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
 .panel {
   border-radius: 8px;
-  margin-bottom: 16px;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
-.tip {
-  font-size: 13px;
-  color: #64748b;
-  margin: 0 0 12px;
+.top-grid,
+.candidate-work-grid {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+  max-width: 100%;
+  min-width: 0;
 }
 
-.actions {
-  margin-top: 12px;
+.top-grid {
+  grid-template-columns: 1fr;
+}
+
+.candidate-work-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 36%);
+}
+
+.static-stack,
+.selected-stack {
+  display: grid;
+  gap: 16px;
+  align-self: start;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.static-stack {
+  grid-template-columns: minmax(320px, 34%) minmax(0, 1fr);
+}
+
+.panel-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
 }
 
-.sel {
-  font-size: 13px;
-  color: #64748b;
+.tag-row,
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.result {
-  font-size: 14px;
+.param-form {
+  max-width: 560px;
 }
 
-/* 整块生成结果过长时随页面区域纵向滚动，不截断正文 */
-.result-scroll {
-  max-height: calc(100vh - 200px);
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding-right: 6px;
+.advanced {
+  margin: 2px 0 12px;
+  border-top: 1px solid #ebeef5;
+  border-bottom: 1px solid #ebeef5;
 }
 
-/* 正文不截断；纵向滚动由外层 .result-scroll 统一承担 */
-.ai-markdown-scroll {
-  overflow-x: hidden;
+.advanced-title {
+  margin-left: 6px;
 }
 
-.ai-plain-full {
-  margin-top: 6px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow-x: hidden;
-  font-size: 14px;
-  line-height: 1.55;
+.advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  column-gap: 12px;
 }
 
-.ai-summary-alert :deep(.el-alert__title) {
-  font-size: 14px;
+.generate-row {
+  margin-bottom: 0;
+}
+
+.decision-alert {
+  margin-bottom: 16px;
 }
 
 .mb {
   margin-bottom: 12px;
 }
 
-.sub-title {
-  font-weight: 600;
-  margin: 8px 0;
-  color: #0f172a;
-}
-
-.ml8 {
-  margin-left: 8px;
-}
-
-.ai-block-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.ai-markdown-alert :deep(.el-alert__content) {
+.pareto-chart {
+  height: 340px;
   width: 100%;
-  display: block;
-}
-
-.ai-markdown-alert :deep(.el-alert__description) {
-  -webkit-line-clamp: unset;
-  line-clamp: unset;
-  display: block;
-}
-
-.ai-markdown-alert :deep(.markdown-body) {
-  margin-top: 4px;
-}
-
-.kb-table {
-  width: 100%;
+  max-width: 100%;
 }
 
 .plain-text {
   white-space: pre-wrap;
   word-break: break-word;
-  line-height: 1.55;
+  line-height: 1.6;
+  color: #334155;
 }
 
-/* ── 权重调节面板 ── */
-.weight-panel :deep(.el-card__header) {
+.candidate-collapse {
+  max-width: 100%;
+}
+
+.candidate-title {
   display: flex;
   align-items: center;
-  padding: 10px 16px;
-}
-
-.weight-sliders {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 8px 16px;
-}
-
-.weight-item {
-  display: grid;
-  grid-template-columns: 48px 1fr 56px;
   gap: 8px;
-  align-items: center;
-  font-size: 13px;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+  line-height: 1.45;
 }
 
-.weight-label {
-  color: #334155;
-  font-weight: 500;
-  text-align: right;
+.candidate-name {
+  font-weight: 600;
+  color: #0f172a;
+  overflow-wrap: anywhere;
 }
 
-.weight-note {
-  margin-top: 8px;
-  font-size: 12px;
+.candidate-meta,
+.muted {
   color: #64748b;
-  text-align: center;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.wrap-text {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.material-list,
+.info-list {
+  display: grid;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.material-row,
+.info-row {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.material-row.compact {
+  padding: 8px 10px;
+}
+
+.material-main,
+.info-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+  margin-bottom: 6px;
+}
+
+.material-name {
+  font-weight: 600;
+  color: #0f172a;
+  overflow-wrap: anywhere;
+}
+
+.material-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px 12px;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.45;
+  min-width: 0;
+}
+
+.material-remark {
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.blend-cockpit :deep(.el-row) {
+  max-width: 100%;
+  min-width: 0;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+.blend-cockpit :deep(.el-col),
+.blend-cockpit :deep(.el-card__body),
+.blend-cockpit :deep(.el-collapse-item__content),
+.blend-cockpit :deep(.el-tabs__content),
+.blend-cockpit :deep(.el-tab-pane) {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.blend-cockpit :deep(.el-descriptions__body table) {
+  width: 100% !important;
+  table-layout: fixed;
+}
+
+.blend-cockpit :deep(.el-descriptions__label),
+.blend-cockpit :deep(.el-descriptions__content) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.blend-cockpit :deep(.el-table) {
+  max-width: 100%;
+}
+
+.blend-cockpit :deep(.el-table__inner-wrapper),
+.blend-cockpit :deep(.el-table__body-wrapper),
+.blend-cockpit :deep(.el-scrollbar__wrap) {
+  overflow-x: hidden !important;
+}
+
+@media (max-width: 720px) {
+  .static-stack,
+  .candidate-work-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .advanced-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>

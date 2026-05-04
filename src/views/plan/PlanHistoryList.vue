@@ -42,6 +42,15 @@
         <template #default="{ row }">{{ orderLabel(row.orderId) }}</template>
       </el-table-column>
       <el-table-column prop="planName" label="方案名称" min-width="120" show-overflow-tooltip />
+      <el-table-column label="决策状态" width="105">
+        <template #default="{ row }">
+          <el-tag :type="decisionTagType(decisionStatus(row))" size="small">
+            {{ decisionLabel(decisionStatus(row)) }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="scoreStrategy" label="策略" width="120" />
+      <el-table-column prop="paretoRank" label="Pareto" width="80" align="right" />
       <el-table-column prop="totalCost" label="总成本" width="100" align="right">
         <template #default="{ row }">{{ formatMoney(row.totalCost) }}</template>
       </el-table-column>
@@ -53,8 +62,8 @@
       <el-table-column label="操作" width="220" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openDetail(row.id)">详情</el-button>
-          <el-button link type="success" :disabled="row.planStatus === 'selected'" @click="onSelect(row)">选用</el-button>
-          <el-button link type="warning" :disabled="row.traceStatus === 'executed' || row.planStatus === 'executed'" @click="onExecute(row)">执行</el-button>
+          <el-button link type="success" :disabled="row.planStatus === 'selected' || !isExecutableDecision(row)" @click="onSelect(row)">选用</el-button>
+          <el-button link type="warning" :disabled="row.traceStatus === 'executed' || row.planStatus === 'executed' || !isExecutableDecision(row)" @click="onExecute(row)">执行</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -75,11 +84,30 @@
     <el-drawer v-model="drawerVisible" title="方案详情" size="640px" destroy-on-close>
       <el-skeleton v-if="detailLoading" :rows="10" animated />
       <div v-else-if="plan" class="drawer-detail-scroll">
+        <el-alert
+          v-if="!isExecutableDecision(plan)"
+          title="风险参考或不可执行方案禁止直接选用和执行"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="mb"
+        />
         <el-descriptions :column="2" border size="small" class="mb">
           <el-descriptions-item label="方案编号">{{ plan.planCode }}</el-descriptions-item>
           <el-descriptions-item label="订单">{{ orderLabel(plan.orderId) }}</el-descriptions-item>
           <el-descriptions-item label="状态">{{ plan.planStatus }}</el-descriptions-item>
           <el-descriptions-item label="追溯状态">{{ plan.traceStatus || 'not_executed' }}</el-descriptions-item>
+          <el-descriptions-item label="决策状态">
+            <el-tag :type="decisionTagType(decisionStatus(plan))" size="small">
+              {{ decisionLabel(decisionStatus(plan)) }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="推荐模式">{{ plan.recommendationModeLabel || plan.recommendationMode || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="评分策略">{{ plan.scoreStrategy || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="Pareto Rank">{{ plan.paretoRank ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="吨煤成本">{{ formatMoney(plan.objectiveCostPerTon) }}</el-descriptions-item>
+          <el-descriptions-item label="质量偏差">{{ formatMoney(plan.objectiveQualityDeviation) }}</el-descriptions-item>
+          <el-descriptions-item label="执行风险">{{ formatMoney(plan.objectiveExecutionRisk) }}</el-descriptions-item>
           <el-descriptions-item v-if="plan.finalProductBatchNo" label="最终产品批次" :span="2">
             {{ plan.finalProductBatchNo }}
           </el-descriptions-item>
@@ -139,6 +167,23 @@
         <div v-if="plan.aiCandidateReason" class="mb">
           <div class="sub">AI候选生成理由</div>
           <div class="text">{{ plan.aiCandidateReason }}</div>
+        </div>
+        <div v-if="planProblemItems.length" class="mb">
+          <div class="sub">结构化问题项</div>
+          <el-table :data="planProblemItems" border size="small">
+            <el-table-column prop="severityLabel" label="级别" width="100" />
+            <el-table-column prop="typeLabel" label="类型" width="120" />
+            <el-table-column prop="message" label="说明" min-width="260" show-overflow-tooltip />
+            <el-table-column prop="coalName" label="煤种" width="120" show-overflow-tooltip />
+          </el-table>
+        </div>
+        <div v-if="planSuggestionItems.length" class="mb">
+          <div class="sub">调整建议</div>
+          <el-table :data="planSuggestionItems" border size="small">
+            <el-table-column prop="priority" label="优先级" width="80" align="right" />
+            <el-table-column prop="action" label="动作" width="150" show-overflow-tooltip />
+            <el-table-column prop="message" label="建议" min-width="260" show-overflow-tooltip />
+          </el-table>
         </div>
         <div v-if="plan.ruleBasis" class="mb">
           <div class="sub">规则依据 ruleBasis</div>
@@ -272,7 +317,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import MarkdownContent from '@/components/MarkdownContent.vue'
 import PlanScoreRadar from '@/components/PlanScoreRadar.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -319,6 +364,8 @@ const plan = ref(null)
 const details = ref([])
 const feedbackRows = ref([])
 const experimentRows = ref([])
+const planProblemItems = computed(() => parseItems(plan.value?.problemItems || plan.value?.problemItemsJson))
+const planSuggestionItems = computed(() => parseItems(plan.value?.suggestionItems || plan.value?.suggestionItemsJson))
 
 const feedbackVisible = ref(false)
 const feedbackSaving = ref(false)
@@ -376,6 +423,46 @@ function candidateSourceTag(source) {
   if (source === 'ai') return 'warning'
   if (source === 'hybrid') return 'success'
   return 'info'
+}
+
+function decisionStatus(row = {}) {
+  if (row.decisionStatus) return row.decisionStatus
+  if (row.feasibleFlag === 0) return 'INFEASIBLE'
+  return 'FEASIBLE'
+}
+
+function decisionLabel(status) {
+  const map = {
+    FEASIBLE: '可执行',
+    RISKY: '风险参考',
+    INFEASIBLE: '不可执行',
+  }
+  return map[status] || '—'
+}
+
+function decisionTagType(status) {
+  if (status === 'FEASIBLE') return 'success'
+  if (status === 'RISKY') return 'warning'
+  if (status === 'INFEASIBLE') return 'danger'
+  return 'info'
+}
+
+function isExecutableDecision(row = {}) {
+  return !row.decisionStatus || row.decisionStatus === 'FEASIBLE'
+}
+
+function parseItems(value) {
+  if (!value) return []
+  if (Array.isArray(value)) return value
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+  return []
 }
 
 function buildQuery() {
@@ -502,6 +589,10 @@ async function onConvertToCase(row) {
 }
 
 async function onSelect(row) {
+  if (!isExecutableDecision(row)) {
+    ElMessage.warning('风险参考或不可执行方案不能选用')
+    return
+  }
   await ElMessageBox.confirm(`确定选用方案「${row.planCode}」吗？`, '选用方案', { type: 'warning' })
   await selectBlendPlan(row.id)
   ElMessage.success('已选用')
@@ -509,6 +600,10 @@ async function onSelect(row) {
 }
 
 async function onExecute(row) {
+  if (!isExecutableDecision(row)) {
+    ElMessage.warning('风险参考或不可执行方案不能执行')
+    return
+  }
   await ElMessageBox.confirm(`确定执行方案「${row.planCode}」并生成最终产品批次吗？`, '执行方案', { type: 'warning' })
   const res = await executeBlendPlan({
     planId: row.id,
