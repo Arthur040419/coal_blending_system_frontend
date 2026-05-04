@@ -110,6 +110,62 @@
             <div class="sub-title">方案评分雷达图</div>
             <PlanScoreRadar :plan="result.recommendedPlan.plan" />
           </div>
+
+          <!-- ── 多目标权重调节 ── -->
+          <el-card shadow="never" class="mb weight-panel">
+            <template #header>
+              <span class="sub-title" style="margin:0">多目标权重调节</span>
+              <el-tag size="small" type="info" effect="plain" style="margin-left: 8px">拖动滑块调整综合评分权重</el-tag>
+            </template>
+            <div class="weight-sliders">
+              <div class="weight-item">
+                <span class="weight-label">质量</span>
+                <el-slider
+                  v-model="qualityWeight"
+                  :min="10"
+                  :max="80"
+                  :step="5"
+                  show-input
+                  :format-tooltip="(v) => `${v}%`"
+                  size="small"
+                />
+              </div>
+              <div class="weight-item">
+                <span class="weight-label">成本</span>
+                <el-slider
+                  v-model="costWeight"
+                  :min="5"
+                  :max="60"
+                  :step="5"
+                  show-input
+                  :format-tooltip="(v) => `${v}%`"
+                  size="small"
+                />
+              </div>
+              <div class="weight-item">
+                <span class="weight-label">稳定性</span>
+                <el-slider
+                  v-model="stabilityWeight"
+                  :min="5"
+                  :max="60"
+                  :step="5"
+                  show-input
+                  :format-tooltip="(v) => `${v}%`"
+                  size="small"
+                />
+              </div>
+            </div>
+            <div class="weight-note">
+              当前综合评分 = 质量×{{ normalizedWeights.q }}% + 成本×{{ normalizedWeights.c }}% + 稳定性×{{ normalizedWeights.s }}%
+            </div>
+          </el-card>
+
+          <!-- ── Pareto 前沿散点图 ── -->
+          <ParetoScatter
+            v-if="paretoData.length > 0"
+            :plans="paretoData"
+            :recommended-plan-id="recommendedPlanParetoId"
+          />
           <el-alert
             v-if="result.recommendedPlan?.plan?.constraintSummary"
             title="约束校验"
@@ -631,6 +687,7 @@
 <script setup>
 import { computed, defineComponent, h, onMounted, ref, resolveComponent } from 'vue'
 import MarkdownContent from '@/components/MarkdownContent.vue'
+import ParetoScatter from '@/components/ParetoScatter.vue'
 import PlanScoreRadar from '@/components/PlanScoreRadar.vue'
 import { generateBlendPlan } from '@/api/blendPlan'
 import { fetchOrderPage } from '@/api/order'
@@ -643,6 +700,22 @@ const generating = ref(false)
 const result = ref(null)
 const candidateScope = ref('coal_type')
 const candidateDetailVisible = ref(false)
+
+// ── 多目标评分权重（当前为展示用，后续可扩展为后端 API 参数） ──
+const qualityWeight = ref(50)
+const costWeight = ref(20)
+const stabilityWeight = ref(30)
+
+// 归一化权重（保证三者和为 100）
+const normalizedWeights = computed(() => {
+  const sum = qualityWeight.value + costWeight.value + stabilityWeight.value
+  if (sum === 0) return { q: 50, c: 20, s: 30 }
+  return {
+    q: Math.round((qualityWeight.value / sum) * 100),
+    c: Math.round((costWeight.value / sum) * 100),
+    s: 100 - Math.round((qualityWeight.value / sum) * 100) - Math.round((costWeight.value / sum) * 100),
+  }
+})
 
 const persistedPlans = computed(() => {
   if (!result.value) return []
@@ -680,6 +753,31 @@ const materialLookup = computed(() => {
     }
   }
   return map
+})
+
+// ── Pareto 散点图数据：从 persistedPlans 提取质量/成本 ──
+const paretoData = computed(() => {
+  return persistedPlans.value.map((item) => {
+    const plan = item.plan || {}
+    return {
+      plan: {
+        id: plan.id,
+        planName: plan.planName,
+        planCode: plan.planCode,
+        totalCost: plan.totalCost,
+        qualityScore: plan.qualityScore,
+        costScore: plan.costScore,
+        stabilityScore: plan.stabilityScore,
+        overallScore: plan.overallScore,
+        feasibleFlag: plan.feasibleFlag,
+      },
+      demandQuantity: result.value?.order?.demandQuantity || 1,
+    }
+  })
+})
+
+const recommendedPlanParetoId = computed(() => {
+  return result.value?.recommendedPlan?.plan?.id || null
 })
 
 function onSelectOrder(row) {
@@ -1013,5 +1111,39 @@ onMounted(loadOrders)
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.55;
+}
+
+/* ── 权重调节面板 ── */
+.weight-panel :deep(.el-card__header) {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+}
+
+.weight-sliders {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px 16px;
+}
+
+.weight-item {
+  display: grid;
+  grid-template-columns: 48px 1fr 56px;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.weight-label {
+  color: #334155;
+  font-weight: 500;
+  text-align: right;
+}
+
+.weight-note {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #64748b;
+  text-align: center;
 }
 </style>
