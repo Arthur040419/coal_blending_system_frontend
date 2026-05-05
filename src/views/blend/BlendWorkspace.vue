@@ -47,6 +47,23 @@
                   <el-option label="库存优先" value="INVENTORY_FIRST" />
                 </el-select>
               </el-form-item>
+              <el-form-item label="大模型">
+                <el-select
+                  v-model="form.modelConfigId"
+                  :loading="modelConfigLoading"
+                  clearable
+                  filterable
+                  placeholder="自动选择最新启用模型"
+                  style="width: 260px"
+                >
+                  <el-option
+                    v-for="model in availableModelOptions"
+                    :key="model.id"
+                    :label="modelLabel(model)"
+                    :value="model.id"
+                  />
+                </el-select>
+              </el-form-item>
               <el-collapse class="advanced">
                 <el-collapse-item name="advanced">
                   <template #title>
@@ -376,6 +393,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import MarkdownContent from '@/components/MarkdownContent.vue'
 import PlanScoreRadar from '@/components/PlanScoreRadar.vue'
 import { executeBlendPlan, generateBlendPlan, selectBlendPlan } from '@/api/blendPlan'
+import { fetchModelConfigList } from '@/api/modelConfig'
 import { fetchOrderPage } from '@/api/order'
 import { auth } from '@/stores/auth'
 
@@ -383,7 +401,9 @@ const orderLoading = ref(false)
 const orders = ref([])
 const selectedOrder = ref(null)
 const generating = ref(false)
+const modelConfigLoading = ref(false)
 const result = ref(null)
+const modelConfigs = ref([])
 const selectedCandidate = ref(null)
 const activeCandidateKey = ref('')
 const paretoChartRef = ref(null)
@@ -397,6 +417,7 @@ const candidateScopeOptions = [
 const form = ref({
   candidateScope: 'coal_type',
   scoreStrategy: 'BALANCED',
+  modelConfigId: null,
   ratioStep: 0.05,
   maxShortlistCoals: 8,
   maxMaterialCount: 3,
@@ -427,6 +448,14 @@ const allEvaluationRows = computed(() => {
   )
   return [...aiRows, ...systemRows]
 })
+
+const availableModelOptions = computed(() =>
+  (modelConfigs.value || [])
+    .filter((model) => model.status === 1)
+    .filter((model) => ['LLM', 'LOCAL_OLLAMA'].includes(model.modelType))
+    .filter((model) => Boolean(model.apiUrl))
+    .sort((a, b) => Number(b.id || 0) - Number(a.id || 0)),
+)
 
 const paretoRows = computed(() =>
   allEvaluationRows.value.filter(
@@ -463,6 +492,15 @@ async function loadOrders() {
   }
 }
 
+async function loadModelConfigs() {
+  modelConfigLoading.value = true
+  try {
+    modelConfigs.value = await fetchModelConfigList()
+  } finally {
+    modelConfigLoading.value = false
+  }
+}
+
 async function onGenerate() {
   if (!selectedOrder.value) return
   generating.value = true
@@ -474,6 +512,7 @@ async function onGenerate() {
     result.value = await generateBlendPlan({
       orderId: selectedOrder.value.id,
       createBy: auth.userId ?? undefined,
+      modelConfigId: form.value.modelConfigId ?? undefined,
       candidateScope: form.value.candidateScope,
       scoreStrategy: form.value.scoreStrategy,
       ratioStep: form.value.ratioStep,
@@ -660,6 +699,11 @@ function candidateSourceLabel(source) {
   return '系统枚举'
 }
 
+function modelLabel(model) {
+  const type = model.modelType || 'LLM'
+  return `${model.modelName || `模型${model.id}`}（${type}）`
+}
+
 function ratioText(value) {
   return value != null ? `${Number(value * 100).toFixed(0)}%` : '—'
 }
@@ -717,6 +761,7 @@ watch(result, () => scheduleParetoRender(), { flush: 'post' })
 
 onMounted(() => {
   loadOrders()
+  loadModelConfigs()
   window.addEventListener('resize', resizeParetoChart)
 })
 
