@@ -452,7 +452,7 @@ const allEvaluationRows = computed(() => {
 const availableModelOptions = computed(() =>
   (modelConfigs.value || [])
     .filter((model) => model.status === 1)
-    .filter((model) => ['LLM', 'LOCAL_OLLAMA'].includes(model.modelType))
+    .filter((model) => isCallableLlmType(model.modelType))
     .filter((model) => Boolean(model.apiUrl))
     .sort((a, b) => Number(b.id || 0) - Number(a.id || 0)),
 )
@@ -697,6 +697,10 @@ function candidateSourceLabel(source) {
   if (source === 'ai') return '大模型'
   if (source === 'hybrid') return '混合'
   return '系统枚举'
+}
+
+function isCallableLlmType(type) {
+  return ['LLM', 'LOCAL_OLLAMA', 'OLLAMA'].includes(String(type || '').trim().toUpperCase())
 }
 
 function modelLabel(model) {
