@@ -76,6 +76,12 @@ const routes = [
         meta: { title: '方案追溯' },
       },
       {
+        path: 'model-effect',
+        name: 'ModelEffect',
+        component: () => import('@/views/experiment/ModelEffectDashboard.vue'),
+        meta: { title: '模型效果' },
+      },
+      {
         path: 'model-config',
         name: 'ModelConfig',
         component: () => import('@/views/model/ModelConfigList.vue'),

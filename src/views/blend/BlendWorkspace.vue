@@ -144,6 +144,20 @@
         class="decision-alert"
       />
 
+      <el-card v-if="!allEvaluationRows.length" shadow="never" class="panel">
+        <template #header>本次生成诊断</template>
+        <el-descriptions :column="2" border size="small" class="mb">
+          <el-descriptions-item
+            v-for="row in generationDiagnosticRows"
+            :key="row.label"
+            :label="row.label"
+          >
+            {{ row.value }}
+          </el-descriptions-item>
+        </el-descriptions>
+        <div v-if="aiRawPreview" class="plain-text diagnostic-preview">{{ aiRawPreview }}</div>
+      </el-card>
+
       <el-card v-if="recommendedPlan?.plan" shadow="never" class="panel">
         <template #header>
           <div class="panel-head">
@@ -293,13 +307,12 @@
             <template #header>
               <div class="panel-head">
                 <span>问题项</span>
-                <el-tag v-if="selectedCandidate" size="small" effect="plain">
-                  {{ selectedCandidate.planName }}
+                <el-tag v-if="problemPanelTitle" size="small" effect="plain">
+                  {{ problemPanelTitle }}
                 </el-tag>
               </div>
             </template>
-            <el-empty v-if="!selectedCandidate" description="请选择候选方案" />
-            <el-empty v-else-if="!problemPanelRows.length" description="该候选暂无结构化问题" />
+            <el-empty v-if="!problemPanelRows.length" :description="selectedCandidate ? '该候选暂无结构化问题' : '暂无全局问题项'" />
             <div v-else class="info-list">
               <div v-for="row in problemPanelRows" :key="`${row.severity}-${row.type}-${row.message}`" class="info-row">
                 <div class="info-row-head">
@@ -318,13 +331,12 @@
             <template #header>
               <div class="panel-head">
                 <span>调整建议</span>
-                <el-tag v-if="selectedCandidate" size="small" effect="plain">
-                  {{ selectedCandidate.planName }}
+                <el-tag v-if="problemPanelTitle" size="small" effect="plain">
+                  {{ problemPanelTitle }}
                 </el-tag>
               </div>
             </template>
-            <el-empty v-if="!selectedCandidate" description="请选择候选方案" />
-            <el-empty v-else-if="!suggestionPanelRows.length" description="该候选暂无调整建议" />
+            <el-empty v-if="!suggestionPanelRows.length" :description="selectedCandidate ? '该候选暂无调整建议' : '暂无全局调整建议'" />
             <div v-else class="info-list">
               <div v-for="row in suggestionPanelRows" :key="`${row.type}-${row.action}`" class="info-row">
                 <div class="info-row-head">
@@ -467,15 +479,40 @@ const paretoRows = computed(() =>
 )
 
 const problemPanelRows = computed(() => {
-  const rows = parseItems(selectedCandidate.value?.problemItems) || []
+  const rows = parseItems(problemPanelSource.value?.problemItems) || []
   return distinctBy(rows, (row) => `${row.severity}|${row.type}|${row.message}`)
 })
 
 const suggestionPanelRows = computed(() => {
-  const rows = parseItems(selectedCandidate.value?.suggestionItems) || []
+  const rows = parseItems(problemPanelSource.value?.suggestionItems) || []
   return distinctBy(rows, (row) => `${row.type}|${row.action}|${row.message}`).sort(
     (a, b) => (a.priority ?? 99) - (b.priority ?? 99),
   )
+})
+
+const problemPanelSource = computed(() => selectedCandidate.value || result.value || null)
+
+const problemPanelTitle = computed(() => selectedCandidate.value?.planName || (result.value ? '本次生成结果' : ''))
+
+const generationDiagnosticRows = computed(() => {
+  const constraints = result.value?.constraints || {}
+  const ai = result.value?.aiCandidateResult || {}
+  return [
+    { label: '候选物料数', value: valueText(constraints.shortlistedCoalCount) },
+    { label: '大模型返回方案', value: valueText(constraints.aiCandidatePlanCount ?? ai.plans?.length) },
+    { label: '通过校验候选', value: valueText(constraints.acceptedAiCandidateCount) },
+    { label: '最终候选数', value: valueText(constraints.totalCandidateCount) },
+    { label: '系统枚举', value: constraints.systemEnumerationEnabled ? '已启用' : '未启用' },
+    { label: '大模型错误', value: constraints.aiCandidateError || ai.errorMessage || '—' },
+  ]
+})
+
+const aiRawPreview = computed(() => {
+  const raw = result.value?.aiCandidateResult?.rawText
+  if (!raw || allEvaluationRows.value.length) return ''
+  const text = String(raw).trim()
+  if (!text) return ''
+  return `大模型原始输出：\n${text.length > 800 ? `${text.slice(0, 800)}...` : text}`
 })
 
 function onSelectOrder(row) {
@@ -721,6 +758,10 @@ function formatNum(value, digits = 2) {
   return Number.isFinite(n) ? n.toFixed(digits).replace(/\.?0+$/, '') : '—'
 }
 
+function valueText(value) {
+  return value === null || value === undefined || value === '' ? '—' : String(value)
+}
+
 function numberOrNull(value) {
   const n = Number(value)
   return Number.isFinite(n) ? n : null
@@ -879,6 +920,16 @@ onBeforeUnmount(() => {
   word-break: break-word;
   line-height: 1.6;
   color: #334155;
+}
+
+.diagnostic-preview {
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 10px;
+  background: #f8fafc;
+  font-size: 13px;
 }
 
 .candidate-collapse {

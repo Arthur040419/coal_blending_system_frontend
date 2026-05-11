@@ -78,6 +78,7 @@ const menuItems = [
   { path: '/rules', label: '规则知识' },
   { path: '/cases', label: '历史案例' },
   { path: '/plan-history', label: '方案追溯' },
+  { path: '/model-effect', label: '模型效果' },
   { path: '/model-config', label: '模型配置' },
   { path: '/users', label: '用户管理' },
 ]
