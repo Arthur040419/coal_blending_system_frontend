@@ -92,6 +92,52 @@
                   </div>
                 </el-collapse-item>
               </el-collapse>
+              <el-collapse class="advanced history-collapse">
+                <el-collapse-item name="history">
+                  <template #title>
+                    <el-icon><Clock /></el-icon>
+                    <span class="advanced-title">历史方案</span>
+                  </template>
+                  <div class="history-panel">
+                    <div class="history-summary">
+                      <span class="history-label">最近一次：</span>
+                      <strong>{{ latestHistoryGroup?.key || '—' }}</strong>
+                    </div>
+                    <div class="history-meta">
+                      {{ latestHistorySummary }}
+                    </div>
+                    <div class="history-control-row">
+                      <el-select
+                        v-model="selectedHistoryGroupKey"
+                        :loading="historyLoading"
+                        :disabled="!selectedOrder"
+                        filterable
+                        placeholder="选择一次历史生成记录"
+                        class="history-select"
+                      >
+                        <el-option
+                          v-for="group in historyGroups"
+                          :key="group.key"
+                          :label="historyGroupLabel(group)"
+                          :value="group.key"
+                        />
+                      </el-select>
+                      <el-button :disabled="!selectedOrder" :loading="historyLoading" @click.stop="loadOrderHistory">
+                        刷新历史
+                      </el-button>
+                      <el-button
+                        type="primary"
+                        plain
+                        :disabled="!selectedHistoryGroupKey"
+                        :loading="historyViewing"
+                        @click.stop="onViewHistoryPlans"
+                      >
+                        查看历史方案
+                      </el-button>
+                    </div>
+                  </div>
+                </el-collapse-item>
+              </el-collapse>
               <el-form-item class="generate-row">
                 <el-button
                   type="primary"
@@ -246,9 +292,11 @@
               <el-tag size="small" effect="plain">{{ ratioText(detail.blendRatio) }}</el-tag>
             </div>
             <div class="material-grid">
+              <span>煤种编号：{{ detail.coalCode || '—' }}</span>
               <span>批次：{{ detail.productBatchNo || '—' }}</span>
               <span>用量：{{ formatNum(detail.useQuantity) }} 吨</span>
-              <span>单价：{{ formatNum(detail.unitCost) }}</span>
+              <span>单价：{{ formatNum(detail.unitCost) }} 元/吨</span>
+              <span>成本小计：{{ formatNum(detailCost(detail)) }} 元</span>
               <span class="material-remark">说明：{{ detail.remark || '—' }}</span>
             </div>
           </div>
@@ -332,9 +380,11 @@
                     <el-tag size="small" effect="plain">{{ ratioText(detail.blendRatio) }}</el-tag>
                   </div>
                   <div class="material-grid">
+                    <span>煤种编号：{{ detail.coalCode || '—' }}</span>
                     <span>批次：{{ detail.productBatchNo || '—' }}</span>
                     <span>用量：{{ formatNum(detail.useQuantity) }} 吨</span>
-                    <span>单价：{{ formatNum(detail.unitCost) }}</span>
+                    <span>单价：{{ formatNum(detail.unitCost) }} 元/吨</span>
+                    <span>成本小计：{{ formatNum(detailCost(detail)) }} 元</span>
                     <span class="material-remark">说明：{{ detail.remark || '—' }}</span>
                   </div>
                 </div>
@@ -391,6 +441,36 @@
         </div>
       </div>
 
+      <div v-if="scoreComparisonRows.length" class="score-chart-grid">
+        <el-card shadow="never" class="panel">
+          <template #header>
+            <div class="panel-head">
+              <span>候选方案评分柱状图</span>
+              <el-select
+                v-model="selectedChartRowKeys"
+                multiple
+                collapse-tags
+                collapse-tags-tooltip
+                placeholder="选择展示方案"
+                class="chart-select"
+              >
+                <el-option
+                  v-for="option in chartCandidateOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+                />
+              </el-select>
+            </div>
+          </template>
+          <div ref="scoreBarChartRef" class="score-chart"></div>
+        </el-card>
+        <el-card shadow="never" class="panel">
+          <template #header>候选方案评分雷达图</template>
+          <div ref="scoreRadarChartRef" class="score-chart"></div>
+        </el-card>
+      </div>
+
       <el-card shadow="never" class="panel">
         <template #header>知识依据与解释</template>
         <el-tabs>
@@ -400,6 +480,7 @@
               <el-table-column prop="ruleType" label="类型" width="120" />
               <el-table-column prop="hitReason" label="命中原因" min-width="260" show-overflow-tooltip />
             </el-table>
+            <MarkdownContent v-else-if="result.historyRuleBasis" :content="result.historyRuleBasis" />
             <el-empty v-else description="暂无命中规则" />
           </el-tab-pane>
           <el-tab-pane label="历史案例">
@@ -408,6 +489,7 @@
               <el-table-column prop="summary" label="摘要" min-width="260" show-overflow-tooltip />
               <el-table-column prop="matchReason" label="匹配原因" min-width="220" show-overflow-tooltip />
             </el-table>
+            <MarkdownContent v-else-if="result.historyCaseReference" :content="result.historyCaseReference" />
             <el-empty v-else description="暂无参考案例" />
           </el-tab-pane>
           <el-tab-pane label="RAG 知识">
@@ -439,28 +521,46 @@
 </template>
 
 <script setup>
-import { Check, Cpu, Refresh, Setting, VideoPlay } from '@element-plus/icons-vue'
+import { Check, Clock, Cpu, Refresh, Setting, VideoPlay } from '@element-plus/icons-vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import MarkdownContent from '@/components/MarkdownContent.vue'
 import PlanScoreRadar from '@/components/PlanScoreRadar.vue'
-import { executeBlendPlan, generateBlendPlan, selectBlendPlan } from '@/api/blendPlan'
+import {
+  executeBlendPlan,
+  fetchBlendPlanByOrder,
+  fetchBlendPlanDetails,
+  generateBlendPlan,
+  selectBlendPlan,
+} from '@/api/blendPlan'
 import { fetchModelConfigList } from '@/api/modelConfig'
 import { fetchOrderPage } from '@/api/order'
+import { useCoalTypes } from '@/composables/useCoalTypes'
 import { auth } from '@/stores/auth'
+
+const { coalMap, load: loadCoals } = useCoalTypes()
 
 const orderLoading = ref(false)
 const orders = ref([])
 const selectedOrder = ref(null)
 const generating = ref(false)
+const historyLoading = ref(false)
+const historyViewing = ref(false)
+const historyPlans = ref([])
+const selectedHistoryGroupKey = ref(null)
 const modelConfigLoading = ref(false)
 const result = ref(null)
 const modelConfigs = ref([])
 const selectedCandidate = ref(null)
 const activeCandidateKey = ref('')
+const selectedChartRowKeys = ref([])
 const paretoChartRef = ref(null)
+const scoreBarChartRef = ref(null)
+const scoreRadarChartRef = ref(null)
 let paretoChart = null
+let scoreBarChart = null
+let scoreRadarChart = null
 
 const candidateScopeOptions = [
   { label: '煤种级', value: 'coal_type' },
@@ -490,6 +590,9 @@ const candidateMaterialRows = computed(() =>
 
 const decisionAlert = computed(() => {
   const mode = result.value?.recommendationMode
+  if (result.value?.isHistoryView) {
+    return { type: 'info', title: '已加载该订单历史配煤方案' }
+  }
   if (mode === 'NORMAL') {
     return { type: 'success', title: '已生成可执行推荐方案' }
   }
@@ -517,6 +620,43 @@ const availableModelOptions = computed(() =>
     .sort((a, b) => Number(b.id || 0) - Number(a.id || 0)),
 )
 
+const historyGroups = computed(() => {
+  const map = new Map()
+  for (const plan of historyPlans.value || []) {
+    const key = historyGroupKey(plan)
+    const group = map.get(key) || {
+      key,
+      createTime: plan.createTime,
+      plans: [],
+      recommendedPlan: null,
+    }
+    group.plans.push(plan)
+    if (!group.recommendedPlan || isRecommendedHistoryPlan(plan)) {
+      group.recommendedPlan = plan
+    }
+    if (String(plan.createTime || '') > String(group.createTime || '')) {
+      group.createTime = plan.createTime
+    }
+    map.set(key, group)
+  }
+  return [...map.values()]
+    .map((group) => ({
+      ...group,
+      plans: group.plans.sort((a, b) => historyPlanSuffix(a).localeCompare(historyPlanSuffix(b))),
+    }))
+    .sort((a, b) => String(b.createTime || '').localeCompare(String(a.createTime || '')))
+})
+
+const latestHistoryGroup = computed(() => historyGroups.value[0] || null)
+
+const latestHistorySummary = computed(() => {
+  const group = latestHistoryGroup.value
+  if (!group) {
+    return selectedOrder.value ? '暂无历史生成记录' : '请选择订单后查看历史'
+  }
+  return `${formatHistoryTime(group.createTime)} · ${group.plans.length}个方案`
+})
+
 const paretoRows = computed(() =>
   allEvaluationRows.value.filter(
     (row) =>
@@ -525,6 +665,28 @@ const paretoRows = computed(() =>
       row.objectiveExecutionRisk != null,
   ),
 )
+
+const scoreComparisonRows = computed(() =>
+  allEvaluationRows.value.filter(
+    (row) =>
+      row.qualityScore != null &&
+      row.costScore != null &&
+      row.stabilityScore != null &&
+      row.overallScore != null,
+  ),
+)
+
+const chartCandidateOptions = computed(() =>
+  scoreComparisonRows.value.map((row, index) => ({
+    label: chartPlanName(row, index, scoreComparisonRows.value),
+    value: row.rowKey,
+  })),
+)
+
+const displayedScoreRows = computed(() => {
+  const selected = new Set(selectedChartRowKeys.value)
+  return scoreComparisonRows.value.filter((row) => selected.has(row.rowKey))
+})
 
 const problemPanelRows = computed(() => {
   const rows = parseItems(problemPanelSource.value?.problemItems) || []
@@ -563,8 +725,13 @@ const aiRawPreview = computed(() => {
   return `大模型原始输出：\n${text.length > 800 ? `${text.slice(0, 800)}...` : text}`
 })
 
-function onSelectOrder(row) {
+async function onSelectOrder(row) {
   selectedOrder.value = row || null
+  historyPlans.value = []
+  selectedHistoryGroupKey.value = null
+  if (row?.id) {
+    await loadOrderHistory()
+  }
 }
 
 async function loadOrders() {
@@ -586,13 +753,33 @@ async function loadModelConfigs() {
   }
 }
 
+async function loadOrderHistory() {
+  if (!selectedOrder.value?.id) return
+  historyLoading.value = true
+  try {
+    const rows = await fetchBlendPlanByOrder(selectedOrder.value.id)
+    historyPlans.value = Array.isArray(rows) ? rows : []
+    if (!selectedHistoryGroupKey.value && historyGroups.value.length) {
+      selectedHistoryGroupKey.value = historyGroups.value[0].key
+    } else if (
+      selectedHistoryGroupKey.value &&
+      !historyGroups.value.some((group) => group.key === selectedHistoryGroupKey.value)
+    ) {
+      selectedHistoryGroupKey.value = historyGroups.value[0]?.key || null
+    }
+  } finally {
+    historyLoading.value = false
+  }
+}
+
 async function onGenerate() {
   if (!selectedOrder.value) return
   generating.value = true
   result.value = null
   selectedCandidate.value = null
   activeCandidateKey.value = ''
-  disposeParetoChart()
+  selectedChartRowKeys.value = []
+  disposeAllCharts()
   try {
     result.value = await generateBlendPlan({
       orderId: selectedOrder.value.id,
@@ -605,8 +792,35 @@ async function onGenerate() {
       maxMaterialCount: form.value.maxMaterialCount,
       maxReturnPlans: form.value.maxReturnPlans,
     })
+    await loadOrderHistory()
   } finally {
     generating.value = false
+  }
+}
+
+async function onViewHistoryPlans() {
+  if (!selectedOrder.value?.id || !selectedHistoryGroupKey.value) return
+  historyViewing.value = true
+  result.value = null
+  selectedCandidate.value = null
+  activeCandidateKey.value = ''
+  selectedChartRowKeys.value = []
+  disposeAllCharts()
+  try {
+    await loadCoals()
+    if (!historyPlans.value.length) {
+      await loadOrderHistory()
+    }
+    const group = historyGroups.value.find((item) => item.key === selectedHistoryGroupKey.value)
+    const plans = group?.plans ? [...group.plans] : []
+    if (!plans.length) {
+      ElMessage.warning('该历史生成记录下没有方案')
+      return
+    }
+    const detailsList = await Promise.all(plans.map((plan) => fetchBlendPlanDetails(plan.id)))
+    result.value = buildHistoryResult(plans, detailsList, group)
+  } finally {
+    historyViewing.value = false
   }
 }
 
@@ -663,6 +877,137 @@ function normalizeEvaluationRow(row, index, fallbackSource) {
     predictedCalorific: metrics.predictedCalorific,
     mainProblem: (row.problemItems || []).map((item) => item.typeLabel || item.message).filter(Boolean).join('；') || '—',
   }
+}
+
+function buildHistoryResult(plans, detailsList, group) {
+  const selectedPlan = group?.recommendedPlan || plans.find(isRecommendedHistoryPlan) || plans[0]
+  const items = plans.map((plan, index) => historyPlanToEvaluationItem(plan, detailsList[index] || []))
+  const selectedDetails = enrichHistoryDetails(detailsList[plans.findIndex((plan) => plan.id === selectedPlan?.id)] || [])
+  const candidateMaterials = readJsonArray(selectedPlan?.candidateMaterialsJson)
+  const matchedRules = readJsonArray(selectedPlan?.matchedRulesJson)
+  const matchedCases = readJsonArray(selectedPlan?.matchedCasesJson)
+  const ragRetrieveResult = parseJsonObject(selectedPlan?.ragRetrieveResultJson)
+  const feasible = items.filter((item) => decisionStatus(item) === 'FEASIBLE').length
+  const risky = items.filter((item) => decisionStatus(item) === 'RISKY').length
+  const infeasible = items.filter((item) => decisionStatus(item) === 'INFEASIBLE').length
+  return {
+    isHistoryView: true,
+    order: selectedOrder.value,
+    candidateMaterials: candidateMaterials.length ? candidateMaterials : buildCandidateMaterialsFromHistoryDetails(plans, detailsList),
+    recommendedPlan: selectedPlan ? { plan: selectedPlan, details: selectedDetails } : null,
+    candidatePlans: [],
+    aiEvaluatedCandidates: [],
+    systemEvaluatedCandidates: items,
+    matchedRules,
+    matchedCases,
+    ragRetrieveResult,
+    historyRuleBasis: selectedPlan?.ruleBasis || '',
+    historyCaseReference: selectedPlan?.caseReference || '',
+    decisionStatus: decisionStatus(selectedPlan),
+    decisionStatusLabel: decisionLabel(decisionStatus(selectedPlan)),
+    recommendationMode: 'HISTORY',
+    recommendationModeLabel: '历史方案',
+    decisionSummary: `已加载订单 ${selectedOrder.value?.orderCode || selectedOrder.value?.id || ''} 在 ${formatHistoryTime(group?.createTime)} 的一次历史生成记录，共 ${plans.length} 个方案，其中可执行 ${feasible} 个，风险参考 ${risky} 个，不可执行 ${infeasible} 个。`,
+    problemItems: parseItems(selectedPlan?.problemItems || selectedPlan?.problemItemsJson),
+    suggestionItems: parseItems(selectedPlan?.suggestionItems || selectedPlan?.suggestionItemsJson),
+    paretoSummary: {
+      totalCandidateCount: plans.length,
+      feasibleCount: feasible,
+      riskyCount: risky,
+      infeasibleCount: infeasible,
+    },
+    generationConfig: parseJsonObject(selectedPlan?.generationConfigJson),
+    explainSummary: buildHistoryExplainSummary(selectedPlan),
+  }
+}
+
+function historyPlanToEvaluationItem(plan, details) {
+  return {
+    candidateSource: plan.candidateSource || 'history',
+    planName: `${plan.planName || '历史方案'}（${plan.planCode || plan.id}）`,
+    planCode: plan.planCode,
+    totalCost: plan.totalCost,
+    qualityScore: plan.qualityScore,
+    costScore: plan.costScore,
+    stabilityScore: plan.stabilityScore,
+    overallScore: plan.overallScore,
+    feasibleFlag: plan.feasibleFlag,
+    constraintSummary: plan.constraintSummary,
+    scoreDetail: plan.scoreDetail,
+    riskLevel: plan.riskLevel,
+    riskTip: plan.riskTip,
+    decisionStatus: decisionStatus(plan),
+    decisionStatusLabel: decisionLabel(decisionStatus(plan)),
+    recommendationMode: plan.recommendationMode,
+    problemItems: parseItems(plan.problemItems || plan.problemItemsJson),
+    suggestionItems: parseItems(plan.suggestionItems || plan.suggestionItemsJson),
+    paretoRank: plan.paretoRank,
+    objectiveCostPerTon: plan.objectiveCostPerTon,
+    objectiveQualityDeviation: plan.objectiveQualityDeviation,
+    objectiveExecutionRisk: plan.objectiveExecutionRisk,
+    scoreStrategy: plan.scoreStrategy,
+    details: enrichHistoryDetails(details),
+  }
+}
+
+function enrichHistoryDetails(details) {
+  return (Array.isArray(details) ? details : []).map((detail) => {
+    const coal = coalMap[detail.coalId] || {}
+    return {
+      ...detail,
+      coalCode: detail.coalCode || coal.coalCode,
+      coalName: detail.coalName || coal.coalName,
+    }
+  })
+}
+
+function buildCandidateMaterialsFromHistoryDetails(plans, detailsList) {
+  const map = new Map()
+  for (const details of detailsList || []) {
+    for (const detail of enrichHistoryDetails(details)) {
+      const key = detail.productBatchNo || detail.coalId
+      if (!key || map.has(key)) continue
+      map.set(key, {
+        shortlistRank: map.size + 1,
+        materialKey: String(key),
+        coalId: detail.coalId,
+        coalCode: detail.coalCode,
+        coalName: detail.coalName,
+        productBatchId: detail.productBatchId,
+        productBatchNo: detail.productBatchNo,
+        availableQuantity: null,
+        ashContent: detail.predictedAsh,
+        sulfurContent: detail.predictedSulfur,
+        moistureContent: detail.predictedMoisture,
+        volatileContent: detail.predictedVolatile,
+        calorificValue: detail.predictedCalorific,
+        purchasePrice: detail.unitCost,
+      })
+    }
+  }
+  if (map.size) return [...map.values()]
+  return (plans || []).flatMap((plan, index) => {
+    const coal = coalMap[plan.coalId] || {}
+    return plan.coalId ? [{
+      shortlistRank: index + 1,
+      materialKey: String(plan.coalId),
+      coalId: plan.coalId,
+      coalCode: coal.coalCode,
+      coalName: coal.coalName,
+    }] : []
+  })
+}
+
+function buildHistoryExplainSummary(plan = {}) {
+  const blocks = []
+  if (plan.ruleBasis) blocks.push(`【规则依据】\n${plan.ruleBasis}`)
+  if (plan.caseReference) blocks.push(`【案例参考】\n${plan.caseReference}`)
+  if (plan.recommendReason) blocks.push(`【推荐理由】\n${plan.recommendReason}`)
+  if (plan.riskTip) blocks.push(`【风险提示】\n${plan.riskTip}`)
+  if (plan.finalExplanation || plan.explanation) {
+    blocks.push(`【最终解释】\n${plan.finalExplanation || plan.explanation}`)
+  }
+  return blocks.join('\n\n')
 }
 
 function firstDetailMetrics(details) {
@@ -738,6 +1083,8 @@ function renderParetoChart(retry = 0) {
 
 function resizeParetoChart() {
   paretoChart?.resize()
+  scoreBarChart?.resize()
+  scoreRadarChart?.resize()
 }
 
 function scheduleParetoRender(retry = 0) {
@@ -751,6 +1098,119 @@ function scheduleParetoRender(retry = 0) {
 function disposeParetoChart() {
   paretoChart?.dispose()
   paretoChart = null
+}
+
+function renderScoreCharts(retry = 0) {
+  if (!displayedScoreRows.value.length) {
+    disposeScoreCharts()
+    return
+  }
+  renderScoreBarChart(retry)
+  renderScoreRadarChart(retry)
+}
+
+function renderScoreBarChart(retry = 0) {
+  if (!scoreBarChartRef.value) return
+  const box = scoreBarChartRef.value.getBoundingClientRect()
+  if (box.width <= 0 || box.height <= 0) {
+    if (retry < 5) scheduleScoreRender(retry + 1)
+    return
+  }
+  if (!scoreBarChart) {
+    scoreBarChart = echarts.init(scoreBarChartRef.value)
+  }
+  const rows = displayedScoreRows.value
+  const names = rows.map((row, index) => chartPlanName(row, index, rows))
+  scoreBarChart.setOption({
+    color: ['#2563eb', '#16a34a', '#f59e0b', '#7c3aed'],
+    legend: { type: 'scroll', top: 0 },
+    grid: { left: 42, right: 20, top: 54, bottom: 72 },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      appendToBody: true,
+    },
+    xAxis: {
+      type: 'category',
+      data: names,
+      axisLabel: { interval: 0, rotate: names.length > 5 ? 28 : 0, overflow: 'truncate', width: 90 },
+    },
+    yAxis: { type: 'value', min: 0, max: 100, name: '评分' },
+    series: [
+      { name: '质量评分', type: 'bar', data: rows.map((row) => row.qualityScore) },
+      { name: '成本评分', type: 'bar', data: rows.map((row) => row.costScore) },
+      { name: '库存评分', type: 'bar', data: rows.map((row) => row.stabilityScore) },
+      { name: '综合评分', type: 'bar', data: rows.map((row) => row.overallScore) },
+    ],
+    animation: false,
+  })
+  scoreBarChart.resize()
+}
+
+function renderScoreRadarChart(retry = 0) {
+  if (!scoreRadarChartRef.value) return
+  const box = scoreRadarChartRef.value.getBoundingClientRect()
+  if (box.width <= 0 || box.height <= 0) {
+    if (retry < 5) scheduleScoreRender(retry + 1)
+    return
+  }
+  if (!scoreRadarChart) {
+    scoreRadarChart = echarts.init(scoreRadarChartRef.value)
+  }
+  const rows = displayedScoreRows.value
+  scoreRadarChart.setOption({
+    color: ['#2563eb', '#16a34a', '#f59e0b', '#7c3aed', '#dc2626', '#0891b2', '#9333ea', '#65a30d'],
+    legend: {
+      type: 'scroll',
+      top: 0,
+      data: rows.map((row, index) => chartPlanName(row, index, rows)),
+    },
+    tooltip: { trigger: 'item', appendToBody: true },
+    radar: {
+      center: ['50%', '58%'],
+      radius: '62%',
+      indicator: [
+        { name: '质量', max: 100 },
+        { name: '成本', max: 100 },
+        { name: '库存', max: 100 },
+        { name: '综合', max: 100 },
+      ],
+    },
+    series: [
+      {
+        type: 'radar',
+        data: rows.map((row, index) => ({
+          name: chartPlanName(row, index, rows),
+          value: [row.qualityScore, row.costScore, row.stabilityScore, row.overallScore],
+        })),
+        symbolSize: 4,
+        lineStyle: { width: 2 },
+        areaStyle: { opacity: 0.05 },
+      },
+    ],
+    animation: false,
+  })
+  scoreRadarChart.resize()
+}
+
+function scheduleScoreRender(retry = 0) {
+  nextTick(() => {
+    window.requestAnimationFrame(() => {
+      renderScoreCharts(retry)
+    })
+  })
+}
+
+function disposeScoreCharts() {
+  scoreBarChart?.dispose()
+  scoreRadarChart?.dispose()
+  scoreBarChart = null
+  scoreRadarChart = null
+}
+
+function disposeAllCharts() {
+  disposeParetoChart()
+  disposeScoreCharts()
 }
 
 function decisionStatus(row) {
@@ -781,7 +1241,51 @@ function decisionColor(status) {
 function candidateSourceLabel(source) {
   if (source === 'ai') return '大模型'
   if (source === 'hybrid') return '混合'
+  if (source === 'history') return '历史方案'
   return '系统枚举'
+}
+
+function chartPlanName(row, index, rows = scoreComparisonRows.value) {
+  const code = row.planCode || ''
+  if (code) return code
+  const baseName = row.planName || `方案${index + 1}`
+  const sameNameRows = (rows || []).filter((item) => (item.planName || '') === baseName)
+  const name = sameNameRows.length > 1
+    ? `${baseName}-${index + 1}`
+    : baseName
+  return name.length > 16 ? `${name.slice(0, 16)}…` : name
+}
+
+function historyGroupLabel(group) {
+  const recommended = group.recommendedPlan || group.plans?.[0] || {}
+  const score = recommended.overallScore == null ? '—' : formatNum(recommended.overallScore)
+  return `${group.key} · ${formatHistoryTime(group.createTime)} · ${group.plans.length}个方案 · 推荐综合${score}`
+}
+
+function historyGroupKey(plan) {
+  const code = String(plan?.planCode || plan?.id || '')
+  const match = code.match(/^(.*?)([A-Z])$/)
+  if (match && match[1]) return match[1]
+  const time = String(plan?.createTime || '').replace('T', ' ').slice(0, 16)
+  return time || code
+}
+
+function historyPlanSuffix(plan) {
+  const code = String(plan?.planCode || '')
+  const match = code.match(/([A-Z])$/)
+  return match?.[1] || code
+}
+
+function isRecommendedHistoryPlan(plan) {
+  return (
+    plan?.recommendationMode ||
+    String(plan?.planName || '').startsWith('推荐方案') ||
+    historyPlanSuffix(plan) === 'A'
+  )
+}
+
+function formatHistoryTime(value) {
+  return value ? String(value).replace('T', ' ').slice(0, 16) : '—'
 }
 
 function materialDisplayName(row) {
@@ -814,6 +1318,12 @@ function formatNum(value, digits = 2) {
   return Number.isFinite(n) ? n.toFixed(digits).replace(/\.?0+$/, '') : '—'
 }
 
+function detailCost(detail) {
+  const qty = Number(detail?.useQuantity)
+  const price = Number(detail?.unitCost)
+  return Number.isFinite(qty) && Number.isFinite(price) ? qty * price : null
+}
+
 function valueText(value) {
   return value === null || value === undefined || value === '' ? '—' : String(value)
 }
@@ -837,6 +1347,31 @@ function parseItems(value) {
   return []
 }
 
+function readJsonArray(value) {
+  if (!value) return []
+  if (Array.isArray(value)) return value
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+function parseJsonObject(value) {
+  if (!value) return null
+  if (typeof value === 'object') return value
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 function distinctBy(rows, keyFn) {
   const map = new Map()
   for (const row of rows || []) {
@@ -857,8 +1392,16 @@ watch(allEvaluationRows, (rows) => {
   activeCandidateKey.value = next.rowKey
 }, { immediate: true })
 
+watch(scoreComparisonRows, (rows) => {
+  const valid = new Set(rows.map((row) => row.rowKey))
+  const kept = selectedChartRowKeys.value.filter((key) => valid.has(key))
+  selectedChartRowKeys.value = kept.length ? kept : rows.slice(0, 3).map((row) => row.rowKey)
+}, { immediate: true })
+
 watch(paretoRows, () => scheduleParetoRender(), { deep: true, flush: 'post' })
 watch(result, () => scheduleParetoRender(), { flush: 'post' })
+watch(displayedScoreRows, () => scheduleScoreRender(), { deep: true, flush: 'post' })
+watch(result, () => scheduleScoreRender(), { flush: 'post' })
 
 onMounted(() => {
   loadOrders()
@@ -868,7 +1411,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resizeParetoChart)
-  disposeParetoChart()
+  disposeAllCharts()
 })
 </script>
 
@@ -903,6 +1446,14 @@ onBeforeUnmount(() => {
 
 .candidate-work-grid {
   grid-template-columns: minmax(0, 1fr) minmax(340px, 36%);
+}
+
+.score-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .static-stack,
@@ -957,6 +1508,48 @@ onBeforeUnmount(() => {
   margin-bottom: 0;
 }
 
+.history-collapse {
+  margin-top: -12px;
+}
+
+.history-panel {
+  display: grid;
+  gap: 10px;
+  padding: 2px 0 4px;
+}
+
+.history-summary {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: #0f172a;
+  line-height: 1.4;
+}
+
+.history-label,
+.history-meta {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.history-control-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+  width: 100%;
+}
+
+.history-select {
+  flex: 1 1 300px;
+  max-width: 420px;
+}
+
+.chart-select {
+  width: min(420px, 100%);
+}
+
 .decision-alert {
   margin-bottom: 16px;
 }
@@ -967,6 +1560,12 @@ onBeforeUnmount(() => {
 
 .pareto-chart {
   height: 340px;
+  width: 100%;
+  max-width: 100%;
+}
+
+.score-chart {
+  height: 360px;
   width: 100%;
   max-width: 100%;
 }
@@ -1115,12 +1714,18 @@ onBeforeUnmount(() => {
 
 @media (max-width: 720px) {
   .static-stack,
-  .candidate-work-grid {
+  .candidate-work-grid,
+  .score-chart-grid {
     grid-template-columns: 1fr;
   }
 
   .advanced-grid {
     grid-template-columns: 1fr;
+  }
+
+  .history-select {
+    max-width: none;
+    width: 100%;
   }
 
   .panel-head {
