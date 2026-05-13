@@ -153,51 +153,34 @@
         </template>
         <el-empty v-if="!candidateMaterialRows.length" description="暂无候选物料数据" />
         <el-table v-else :data="candidateMaterialRows" border size="small">
-          <el-table-column prop="shortlistRank" label="序号" width="70" align="center" />
-          <el-table-column label="物料" min-width="180" show-overflow-tooltip>
+          <el-table-column label="编号" min-width="110" show-overflow-tooltip>
             <template #default="{ row }">
-              <div class="cell-stack">
-                <strong class="cell-title">{{ materialDisplayName(row) }}</strong>
-                <span class="muted">{{ row.coalCode || '—' }} · {{ row.coalCategory || '—' }}</span>
-              </div>
+              {{ materialCodeText(row) }}
             </template>
           </el-table-column>
-          <el-table-column label="候选范围" width="100">
-            <template #default="{ row }">{{ candidateScopeLabel(row.candidateScope) }}</template>
+          <el-table-column label="名称" min-width="150" show-overflow-tooltip>
+            <template #default="{ row }">{{ materialDisplayName(row) }}</template>
           </el-table-column>
-          <el-table-column label="阶段" width="110">
-            <template #default="{ row }">{{ materialStageLabel(row) }}</template>
+          <el-table-column label="可用库存/t" width="120" align="right">
+            <template #default="{ row }">{{ formatNum(row.availableQuantity) }}</template>
           </el-table-column>
-          <el-table-column label="批次/仓库" min-width="170" show-overflow-tooltip>
-            <template #default="{ row }">
-              <div class="cell-stack">
-                <span>{{ materialBatchText(row) }}</span>
-                <span class="muted">{{ row.warehouseCode || '—' }}</span>
-              </div>
-            </template>
+          <el-table-column label="灰分/%" width="100" align="right">
+            <template #default="{ row }">{{ formatNum(row.ashContent) }}</template>
           </el-table-column>
-          <el-table-column label="库存" width="120" align="right">
-            <template #default="{ row }">
-              <div class="cell-stack align-right">
-                <span>{{ formatNum(row.availableQuantity) }} 吨</span>
-                <span class="muted">可用</span>
-              </div>
-            </template>
+          <el-table-column label="硫分/%" width="100" align="right">
+            <template #default="{ row }">{{ formatNum(row.sulfurContent) }}</template>
           </el-table-column>
-          <el-table-column label="单价" width="100" align="right">
-            <template #default="{ row }">{{ formatNum(row.purchasePrice) }}</template>
+          <el-table-column label="水分/%" width="100" align="right">
+            <template #default="{ row }">{{ formatNum(row.moistureContent) }}</template>
           </el-table-column>
-          <el-table-column label="煤质指标" min-width="210">
-            <template #default="{ row }">
-              <div class="quality-inline">
-                <span>灰 {{ formatNum(row.ashContent) }}%</span>
-                <span>硫 {{ formatNum(row.sulfurContent) }}%</span>
-                <span>水 {{ formatNum(row.moistureContent) }}%</span>
-              </div>
-            </template>
+          <el-table-column label="挥发分/%" width="110" align="right">
+            <template #default="{ row }">{{ formatNum(row.volatileContent) }}</template>
           </el-table-column>
-          <el-table-column label="热值" width="115" align="right">
+          <el-table-column label="发热量/kcal·kg⁻¹" width="150" align="right">
             <template #default="{ row }">{{ formatNum(row.calorificValue) }}</template>
+          </el-table-column>
+          <el-table-column label="单价/元·t⁻¹" width="120" align="right">
+            <template #default="{ row }">{{ formatNum(row.purchasePrice) }}</template>
           </el-table-column>
         </el-table>
       </el-card>
@@ -801,27 +784,12 @@ function candidateSourceLabel(source) {
   return '系统枚举'
 }
 
-function candidateScopeLabel(scope) {
-  return scope === 'product_batch' ? '产品批次级' : '煤种级'
-}
-
-function materialStageLabel(row) {
-  const stage = row?.materialStage || row?.sampleStage || ''
-  const map = {
-    raw_coal: '原煤',
-    product_batch: '产品批次',
-    clean_coal: '洗后产品',
-    mixed_product: '混配产品',
-  }
-  return map[stage] || stage || '—'
-}
-
 function materialDisplayName(row) {
   return row?.productBatchName || row?.coalName || `煤种${row?.coalId || ''}` || '—'
 }
 
-function materialBatchText(row) {
-  return row?.productBatchNo || row?.rawBatchNo || row?.relatedBatchNo || row?.qualityBatchNo || '—'
+function materialCodeText(row) {
+  return row?.productBatchNo || row?.coalCode || row?.rawBatchNo || row?.qualityBatchNo || row?.coalId || '—'
 }
 
 function isCallableLlmType(type) {
@@ -1104,28 +1072,6 @@ onBeforeUnmount(() => {
   grid-column: 1 / -1;
   overflow-wrap: anywhere;
   word-break: break-word;
-}
-
-.cell-stack {
-  display: grid;
-  gap: 2px;
-  line-height: 1.35;
-  min-width: 0;
-}
-
-.cell-stack.align-right {
-  justify-items: end;
-}
-
-.cell-title {
-  overflow-wrap: anywhere;
-}
-
-.quality-inline {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  line-height: 1.35;
 }
 
 .blend-cockpit :deep(.el-row) {
