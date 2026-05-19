@@ -854,7 +854,11 @@ async function onExecuteRecommended() {
 function normalizeEvaluationRow(row, index, fallbackSource) {
   const details = row.details || []
   const metrics = firstDetailMetrics(details)
-  const status = decisionStatus(row)
+  const inferredProblems = mergeDecisionProblems(
+    parseItems(row.problemItems || row.problemItemsJson),
+    inferMetricProblems(row, metrics),
+  )
+  const status = decisionStatus({ ...row, problemItems: inferredProblems }, metrics, inferredProblems)
   return {
     ...row,
     rowKey: `${fallbackSource}-${index}`,
@@ -863,6 +867,7 @@ function normalizeEvaluationRow(row, index, fallbackSource) {
     planName: row.planName || (fallbackSource === 'ai' ? 'AI候选方案' : '系统枚举方案'),
     decisionStatus: status,
     decisionStatusLabel: row.decisionStatusLabel || decisionLabel(status),
+    problemItems: inferredProblems,
     totalCost: numberOrNull(row.totalCost),
     qualityScore: numberOrNull(row.qualityScore),
     costScore: numberOrNull(row.costScore),
@@ -875,7 +880,7 @@ function normalizeEvaluationRow(row, index, fallbackSource) {
     predictedSulfur: metrics.predictedSulfur,
     predictedMoisture: metrics.predictedMoisture,
     predictedCalorific: metrics.predictedCalorific,
-    mainProblem: (row.problemItems || []).map((item) => item.typeLabel || item.message).filter(Boolean).join('；') || '—',
+    mainProblem: inferredProblems.map((item) => item.typeLabel || item.message).filter(Boolean).join('；') || '—',
   }
 }
 
@@ -1213,11 +1218,123 @@ function disposeAllCharts() {
   disposeScoreCharts()
 }
 
-function decisionStatus(row) {
+function decisionStatus(row, metrics = null, problems = null) {
   if (!row) return null
-  if (row?.decisionStatus) return row.decisionStatus
+  const explicit = String(row?.decisionStatus || '').trim().toUpperCase()
+  const rows = problems || parseItems(row.problemItems || row.problemItemsJson)
+  const metricProblems = inferMetricProblems(row, metrics || firstDetailMetrics(row.details || []))
+  const summaryStatus = decisionStatusFromSummary(row.constraintSummary)
+  if (explicit === 'INFEASIBLE') return explicit
+  if (rows.some((item) => item?.severity === 'BLOCKER')) return 'INFEASIBLE'
+  if (metricProblems.some((item) => item?.severity === 'BLOCKER')) return 'INFEASIBLE'
+  if (summaryStatus === 'INFEASIBLE') return summaryStatus
+  if (explicit === 'RISKY') return explicit
+  if (rows.some((item) => item?.severity === 'WARNING')) return 'RISKY'
+  if (metricProblems.some((item) => item?.severity === 'WARNING')) return 'RISKY'
+  if (summaryStatus === 'RISKY') return summaryStatus
+  if (explicit === 'FEASIBLE') return explicit
+  if (summaryStatus) return summaryStatus
+  if (row?.riskLevel === 'high') return 'INFEASIBLE'
+  if (row?.riskLevel === 'medium') return 'RISKY'
+  if (row?.riskLevel === 'low') return 'FEASIBLE'
   if (row?.feasibleFlag === 0) return 'INFEASIBLE'
-  return 'FEASIBLE'
+  if (row?.feasibleFlag === 1) return 'FEASIBLE'
+  return null
+}
+
+function decisionStatusFromSummary(summary) {
+  if (!summary) return null
+  const text = String(summary)
+  if (text.includes('不可行') || summarySectionHasContent(text, '违反项')) {
+    return 'INFEASIBLE'
+  }
+  if (summarySectionHasContent(text, '风险提示')) {
+    return 'RISKY'
+  }
+  if (text.includes('可行性：可行') || text.includes('可行性:可行')) {
+    return 'FEASIBLE'
+  }
+  return null
+}
+
+function summarySectionHasContent(text, label) {
+  const markers = [`${label}：`, `${label}:`]
+  for (const marker of markers) {
+    const start = text.indexOf(marker)
+    if (start < 0) continue
+    const value = text
+      .slice(start + marker.length)
+      .split(/[；;。]/)[0]
+      .trim()
+    return Boolean(value && !['无', '—', '-', '暂无'].includes(value))
+  }
+  return false
+}
+
+function inferMetricProblems(row, metrics = {}) {
+  const order = result.value?.order || selectedOrder.value || {}
+  const problems = []
+  addUpperMetricProblem(problems, 'ASH_EXCEED', '灰分超标', 'predictedAsh', '预测灰分', metrics.predictedAsh, order.targetAsh, '%')
+  addUpperMetricProblem(problems, 'SULFUR_EXCEED', '硫分超标', 'predictedSulfur', '预测硫分', metrics.predictedSulfur, order.targetSulfur, '%')
+  addUpperMetricProblem(problems, 'MOISTURE_EXCEED', '水分超标', 'predictedMoisture', '预测水分', metrics.predictedMoisture, order.targetMoisture, '%')
+  const calorific = numberOrNull(metrics.predictedCalorific)
+  const targetCalorific = numberOrNull(order.targetCalorific)
+  if (calorific != null && targetCalorific != null && calorific < targetCalorific) {
+    problems.push({
+      type: 'CALORIFIC_NOT_ENOUGH',
+      typeLabel: '发热量不足',
+      severity: 'BLOCKER',
+      severityLabel: '硬约束违规',
+      fieldName: 'predictedCalorific',
+      message: `预测发热量 ${formatNum(calorific)} kcal/kg 低于订单下限 ${formatNum(targetCalorific)} kcal/kg，缺口 ${formatNum(targetCalorific - calorific)} kcal/kg。`,
+      actualValue: calorific,
+      targetValue: targetCalorific,
+      deviation: targetCalorific - calorific,
+      unit: 'kcal/kg',
+    })
+  }
+  if (row?.feasibleFlag === 0 && !problems.length) {
+    problems.push({
+      type: 'RULE_VIOLATION',
+      typeLabel: '规则校验未通过',
+      severity: 'BLOCKER',
+      severityLabel: '硬约束违规',
+      fieldName: 'feasibleFlag',
+      message: '后端已将该候选标记为不可执行。',
+    })
+  }
+  return problems
+}
+
+function addUpperMetricProblem(problems, type, typeLabel, fieldName, label, actualValue, targetValue, unit) {
+  const actual = numberOrNull(actualValue)
+  const target = numberOrNull(targetValue)
+  if (actual == null || target == null || actual <= target) return
+  problems.push({
+    type,
+    typeLabel,
+    severity: 'BLOCKER',
+    severityLabel: '硬约束违规',
+    fieldName,
+    message: `${label} ${formatNum(actual)}${unit} 超过订单上限 ${formatNum(target)}${unit}，超出 ${formatNum(actual - target)}${unit}。`,
+    actualValue: actual,
+    targetValue: target,
+    deviation: actual - target,
+    unit,
+  })
+}
+
+function mergeDecisionProblems(...groups) {
+  const map = new Map()
+  for (const rows of groups) {
+    for (const row of rows || []) {
+      const key = `${row?.severity || ''}|${row?.type || ''}|${row?.message || ''}`
+      if (!map.has(key)) {
+        map.set(key, row)
+      }
+    }
+  }
+  return [...map.values()]
 }
 
 function decisionLabel(status) {
