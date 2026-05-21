@@ -276,7 +276,7 @@
       <el-card v-if="recommendedPlan?.plan" shadow="never" class="panel">
         <template #header>
           <div class="panel-head">
-            <span>{{ recommendedPlan.plan.planName || '推荐方案' }}</span>
+            <span>{{ recommendedPlanTitle }}</span>
             <div class="tag-row">
               <el-tag :type="decisionTagType(recommendedDecision)" effect="plain">
                 {{ decisionLabel(recommendedDecision) }}
@@ -368,16 +368,17 @@
             >
               <template #title>
                 <div class="candidate-title">
-                  <span class="candidate-name">{{ row.planName }}</span>
+                  <span class="candidate-name">{{ row.planCode || row.planName }}</span>
                   <el-tag :type="decisionTagType(row.decisionStatus)" size="small">
                     {{ decisionLabel(row.decisionStatus) }}
                   </el-tag>
                   <span class="candidate-meta">
-                    {{ row.candidateSourceLabel }} · Pareto {{ row.paretoRank ?? '—' }} · 综合 {{ formatNum(row.overallScore) }}
+                    {{ rowTitleMeta(row) }} · Pareto {{ row.paretoRank ?? '—' }} · 综合 {{ formatNum(row.overallScore) }}
                   </span>
                 </div>
               </template>
               <el-descriptions :column="3" border size="small" class="mb candidate-desc">
+                <el-descriptions-item label="方案编号">{{ row.planCode || '—' }}</el-descriptions-item>
                 <el-descriptions-item label="来源">{{ row.candidateSourceLabel }}</el-descriptions-item>
                 <el-descriptions-item label="决策状态">{{ decisionLabel(row.decisionStatus) }}</el-descriptions-item>
                 <el-descriptions-item label="Pareto Rank">{{ row.paretoRank ?? '—' }}</el-descriptions-item>
@@ -606,7 +607,13 @@ const form = ref({
 })
 
 const recommendedPlan = computed(() => result.value?.recommendedPlan || null)
-const recommendedDecision = computed(() => decisionStatus(recommendedPlan.value?.plan))
+const recommendedPlanTitle = computed(() => {
+  const plan = recommendedPlan.value?.plan || {}
+  return plan.planCode || plan.planName || '推荐方案'
+})
+const recommendedDecision = computed(() =>
+  resultDecisionStatus.value || decisionStatus(recommendedPlan.value?.plan),
+)
 const recommendedMetrics = computed(() => firstDetailMetrics(recommendedPlan.value?.details || []))
 const candidateMaterialRows = computed(() =>
   (result.value?.candidateMaterials || []).map((row, index) => ({
@@ -731,6 +738,19 @@ const suggestionPanelRows = computed(() => {
 const problemPanelSource = computed(() => selectedCandidate.value || result.value || null)
 
 const problemPanelTitle = computed(() => selectedCandidate.value?.planName || (result.value ? '本次生成结果' : ''))
+
+const resultDecisionStatus = computed(() => {
+  if (!result.value || result.value.isHistoryView) return null
+  const explicit = String(result.value.decisionStatus || '').trim().toUpperCase()
+  if (['FEASIBLE', 'RISKY', 'INFEASIBLE'].includes(explicit)) {
+    return explicit
+  }
+  const mode = String(result.value.recommendationMode || '').trim().toUpperCase()
+  if (mode === 'NORMAL') return 'FEASIBLE'
+  if (mode === 'RISK_REFERENCE') return 'RISKY'
+  if (mode === 'NO_SOLUTION') return 'INFEASIBLE'
+  return null
+})
 
 const generationDiagnosticRows = computed(() => {
   const constraints = result.value?.constraints || {}
@@ -892,6 +912,7 @@ function normalizeEvaluationRow(row, index, fallbackSource) {
     rowKey: `${fallbackSource}-${index}`,
     candidateSource: row.candidateSource || fallbackSource,
     candidateSourceLabel: candidateSourceLabel(row.candidateSource || fallbackSource),
+    planCode: row.planCode || candidateDisplayCode(row.candidateSource || fallbackSource, index),
     planName: row.planName || (fallbackSource === 'ai' ? 'AI候选方案' : '系统枚举方案'),
     decisionStatus: status,
     decisionStatusLabel: row.decisionStatusLabel || decisionLabel(status),
@@ -1273,7 +1294,7 @@ function decisionStatus(row, metrics = null, problems = null) {
 function decisionStatusFromSummary(summary) {
   if (!summary) return null
   const text = String(summary)
-  if (text.includes('不可行') || summarySectionHasContent(text, '违反项')) {
+  if (text.includes('可行性：不可行') || text.includes('可行性:不可行') || summarySectionHasContent(text, '违反项')) {
     return 'INFEASIBLE'
   }
   if (summarySectionHasContent(text, '风险提示')) {
@@ -1388,6 +1409,16 @@ function candidateSourceLabel(source) {
   if (source === 'hybrid') return '混合'
   if (source === 'history') return '历史方案'
   return '系统枚举'
+}
+
+function candidateDisplayCode(source, index) {
+  const prefix = String(source || '').toLowerCase() === 'ai' ? 'AI' : 'SYS'
+  return `${prefix}-${String(index + 1).padStart(3, '0')}`
+}
+
+function rowTitleMeta(row) {
+  const name = row?.planName && row.planName !== row.planCode ? row.planName : row?.candidateSourceLabel
+  return [name, row?.candidateSourceLabel].filter(Boolean).filter((item, index, arr) => arr.indexOf(item) === index).join(' · ')
 }
 
 function chartPlanName(row, index, rows = scoreComparisonRows.value) {
