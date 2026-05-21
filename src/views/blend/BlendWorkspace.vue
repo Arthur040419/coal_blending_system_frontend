@@ -22,10 +22,38 @@
               <el-table-column prop="orderCode" label="订单编号" width="130" />
               <el-table-column prop="customerName" label="客户" min-width="120" show-overflow-tooltip />
               <el-table-column prop="demandQuantity" label="需求(吨)" width="110" align="right" />
+              <el-table-column prop="targetAsh" label="灰分上限" width="95" align="right" />
               <el-table-column prop="targetSulfur" label="硫分上限" width="95" align="right" />
+              <el-table-column prop="targetMoisture" label="水分上限" width="95" align="right" />
+              <el-table-column prop="targetVolatile" label="挥发分参考" width="105" align="right" />
               <el-table-column prop="targetCalorific" label="热值下限" width="95" align="right" />
+              <el-table-column prop="priorityLevel" label="优先级" width="80" align="right" />
+              <el-table-column prop="deliveryDate" label="交货日期" width="115" />
               <el-table-column prop="orderStatus" label="状态" width="90" />
             </el-table>
+
+            <div class="selected-order-detail">
+              <div class="subsection-head">
+                <span>选中订单详情</span>
+                <el-tag v-if="selectedOrder" size="small" effect="plain">{{ selectedOrder.orderStatus || '—' }}</el-tag>
+              </div>
+              <el-empty v-if="!selectedOrder" description="请选择订单查看完整信息" />
+              <el-descriptions v-else :column="2" border size="small">
+                <el-descriptions-item label="订单编号">{{ selectedOrder.orderCode || '—' }}</el-descriptions-item>
+                <el-descriptions-item label="客户">{{ selectedOrder.customerName || '—' }}</el-descriptions-item>
+                <el-descriptions-item label="需求量">{{ formatNum(selectedOrder.demandQuantity) }} 吨</el-descriptions-item>
+                <el-descriptions-item label="交货日期">{{ selectedOrder.deliveryDate || '—' }}</el-descriptions-item>
+                <el-descriptions-item label="灰分上限">{{ formatOrderMetric(selectedOrder.targetAsh, '%') }}</el-descriptions-item>
+                <el-descriptions-item label="硫分上限">{{ formatOrderMetric(selectedOrder.targetSulfur, '%') }}</el-descriptions-item>
+                <el-descriptions-item label="水分上限">{{ formatOrderMetric(selectedOrder.targetMoisture, '%') }}</el-descriptions-item>
+                <el-descriptions-item label="挥发分参考">{{ formatOrderMetric(selectedOrder.targetVolatile, '%') }}</el-descriptions-item>
+                <el-descriptions-item label="发热量下限">{{ formatOrderMetric(selectedOrder.targetCalorific, ' kcal/kg') }}</el-descriptions-item>
+                <el-descriptions-item label="优先级">{{ selectedOrder.priorityLevel ?? '—' }}</el-descriptions-item>
+                <el-descriptions-item label="备注" :span="2">
+                  <span class="wrap-text">{{ selectedOrder.remark || '—' }}</span>
+                </el-descriptions-item>
+              </el-descriptions>
+            </div>
           </el-col>
 
           <el-col :xs="24" :lg="11">
@@ -1435,6 +1463,11 @@ function formatNum(value, digits = 2) {
   return Number.isFinite(n) ? n.toFixed(digits).replace(/\.?0+$/, '') : '—'
 }
 
+function formatOrderMetric(value, unit = '') {
+  const text = formatNum(value)
+  return text === '—' ? text : `${text}${unit}`
+}
+
 function detailCost(detail) {
   const qty = Number(detail?.useQuantity)
   const price = Number(detail?.unitCost)
@@ -1603,6 +1636,21 @@ onBeforeUnmount(() => {
 
 .param-form {
   max-width: 560px;
+}
+
+.selected-order-detail {
+  margin-top: 12px;
+}
+
+.subsection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
 }
 
 .advanced {

@@ -32,6 +32,8 @@
       <el-table-column prop="demandQuantity" label="需求量(吨)" width="110" />
       <el-table-column prop="targetAsh" label="目标灰分" width="100" />
       <el-table-column prop="targetSulfur" label="目标硫分" width="100" />
+      <el-table-column prop="targetMoisture" label="目标水分" width="100" />
+      <el-table-column prop="targetVolatile" label="目标挥发分" width="110" />
       <el-table-column prop="targetCalorific" label="目标热值" width="100" />
       <el-table-column prop="priorityLevel" label="优先级" width="80" />
       <el-table-column prop="orderStatus" label="状态" width="110" />
@@ -115,8 +117,16 @@
           <el-descriptions-item label="客户">{{ detail.customerName }}</el-descriptions-item>
           <el-descriptions-item label="状态">{{ detail.orderStatus }}</el-descriptions-item>
           <el-descriptions-item label="需求量">{{ detail.demandQuantity }}</el-descriptions-item>
+          <el-descriptions-item label="目标灰分">{{ formatMetric(detail.targetAsh, '%') }}</el-descriptions-item>
+          <el-descriptions-item label="目标硫分">{{ formatMetric(detail.targetSulfur, '%') }}</el-descriptions-item>
+          <el-descriptions-item label="目标水分">{{ formatMetric(detail.targetMoisture, '%') }}</el-descriptions-item>
+          <el-descriptions-item label="目标挥发分">{{ formatMetric(detail.targetVolatile, '%') }}</el-descriptions-item>
+          <el-descriptions-item label="目标热值">{{ formatMetric(detail.targetCalorific, ' kcal/kg') }}</el-descriptions-item>
+          <el-descriptions-item label="优先级">{{ detail.priorityLevel ?? '—' }}</el-descriptions-item>
           <el-descriptions-item label="交货日期">{{ detail.deliveryDate || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="备注">{{ detail.remark || '—' }}</el-descriptions-item>
           <el-descriptions-item label="创建时间">{{ formatDateTime(detail.createTime) }}</el-descriptions-item>
+          <el-descriptions-item label="更新时间">{{ formatDateTime(detail.updateTime) }}</el-descriptions-item>
         </el-descriptions>
         <el-form label-width="100px" class="inline-status">
           <el-form-item label="快速改状态">
@@ -318,6 +328,13 @@ async function onDelete(row) {
   await deleteOrder(row.id)
   ElMessage.success('已删除')
   await load()
+}
+
+function formatMetric(value, unit = '') {
+  if (value === null || value === undefined || value === '') return '—'
+  const n = Number(value)
+  if (!Number.isFinite(n)) return '—'
+  return `${n.toFixed(2).replace(/\.?0+$/, '')}${unit}`
 }
 
 onMounted(load)
