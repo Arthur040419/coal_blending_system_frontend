@@ -356,6 +356,9 @@
               >
                 {{ humanBaselinePlan.hardConstraintsPassed ? '硬约束通过' : '硬约束超限' }}
               </el-tag>
+              <el-tag v-if="humanBaselinePlan.selectedN" type="primary" effect="plain">
+                择优结果：N={{ humanBaselinePlan.selectedN }}
+              </el-tag>
               <el-tag type="info" effect="plain">仅作对照，不参与最终推荐</el-tag>
             </div>
           </div>
@@ -371,8 +374,9 @@
           <template #default>
             <div class="plain-text">
               该方案模拟工程师常规经验决策：① 按 0.4×热值得分 + 0.2×灰分得分 + 0.2×硫分得分 + 0.2×价格得分
-              对候选物料计算综合分；② 按综合分降序固定取前 2 种煤，主煤 60% + 辅煤 40%；
-              ③ 仅做硬约束粗校验（灰/硫/水≤上限，热值≥下限）。
+              对候选物料计算综合分；② 按综合分降序<strong>同时生成</strong> N=2（60%/40%）与
+              N=3（50%/30%/20%）两组候选；③ 仅做硬约束粗校验（灰/硫/水≤上限，热值≥下限）；
+              ④ 按"可行优先 + 方案级综合分更高 + 吨煤成本更低"择优，<strong>仅输出一个最终方案</strong>。
               <strong>不查规则知识库、不查历史案例、不查 RAG、不做 Pareto 多目标优化、不做安全余量分级。</strong>
               用于与系统推荐方案形成对照。
             </div>
@@ -380,6 +384,11 @@
         </el-alert>
 
         <el-descriptions :column="3" border size="small" class="mb">
+          <el-descriptions-item label="采用配比">
+            N={{ humanBaselinePlan.selectedN || (humanBaselinePlan.items || []).length }}
+          </el-descriptions-item>
+          <el-descriptions-item label="方案综合分">{{ formatNum(humanBaselinePlan.planScore) }}</el-descriptions-item>
+          <el-descriptions-item label="入选煤种">{{ (humanBaselinePlan.items || []).length }}</el-descriptions-item>
           <el-descriptions-item label="单位成本">{{ formatNum(humanBaselinePlan.costPerTon) }} 元/吨</el-descriptions-item>
           <el-descriptions-item label="总成本">{{ formatNum(humanBaselinePlan.totalCost) }} 元</el-descriptions-item>
           <el-descriptions-item label="需求量">{{ formatNum(humanBaselinePlan.demandQuantity) }} 吨</el-descriptions-item>
@@ -388,7 +397,9 @@
           <el-descriptions-item label="加权水分">{{ formatNum(humanBaselinePlan.predictedMoisture) }}</el-descriptions-item>
           <el-descriptions-item label="加权挥发分">{{ formatNum(humanBaselinePlan.predictedVolatile) }}</el-descriptions-item>
           <el-descriptions-item label="加权热值">{{ formatNum(humanBaselinePlan.predictedCalorific) }}</el-descriptions-item>
-          <el-descriptions-item label="入选煤种">{{ (humanBaselinePlan.items || []).length }}</el-descriptions-item>
+          <el-descriptions-item label="备选对比">
+            <span class="plain-text">{{ humanBaselinePlan.alternativeSummary || '—' }}</span>
+          </el-descriptions-item>
         </el-descriptions>
 
         <div class="material-list mb">
