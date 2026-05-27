@@ -345,6 +345,111 @@
         </div>
       </el-card>
 
+      <el-card v-if="humanBaselinePlan?.generated" shadow="never" class="panel">
+        <template #header>
+          <div class="panel-head">
+            <span>人工经验对照方案（基线）</span>
+            <div class="tag-row">
+              <el-tag
+                :type="humanBaselinePlan.hardConstraintsPassed ? 'success' : 'danger'"
+                effect="plain"
+              >
+                {{ humanBaselinePlan.hardConstraintsPassed ? '硬约束通过' : '硬约束超限' }}
+              </el-tag>
+              <el-tag type="info" effect="plain">仅作对照，不参与最终推荐</el-tag>
+            </div>
+          </div>
+        </template>
+
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+          class="mb"
+          title="基线算法说明"
+        >
+          <template #default>
+            <div class="plain-text">
+              该方案模拟工程师常规经验决策：① 按 0.4×热值得分 + 0.2×灰分得分 + 0.2×硫分得分 + 0.2×价格得分
+              对候选物料计算综合分；② 按综合分降序固定取前 2 种煤，主煤 60% + 辅煤 40%；
+              ③ 仅做硬约束粗校验（灰/硫/水≤上限，热值≥下限）。
+              <strong>不查规则知识库、不查历史案例、不查 RAG、不做 Pareto 多目标优化、不做安全余量分级。</strong>
+              用于与系统推荐方案形成对照。
+            </div>
+          </template>
+        </el-alert>
+
+        <el-descriptions :column="3" border size="small" class="mb">
+          <el-descriptions-item label="单位成本">{{ formatNum(humanBaselinePlan.costPerTon) }} 元/吨</el-descriptions-item>
+          <el-descriptions-item label="总成本">{{ formatNum(humanBaselinePlan.totalCost) }} 元</el-descriptions-item>
+          <el-descriptions-item label="需求量">{{ formatNum(humanBaselinePlan.demandQuantity) }} 吨</el-descriptions-item>
+          <el-descriptions-item label="加权灰分">{{ formatNum(humanBaselinePlan.predictedAsh) }}</el-descriptions-item>
+          <el-descriptions-item label="加权硫分">{{ formatNum(humanBaselinePlan.predictedSulfur) }}</el-descriptions-item>
+          <el-descriptions-item label="加权水分">{{ formatNum(humanBaselinePlan.predictedMoisture) }}</el-descriptions-item>
+          <el-descriptions-item label="加权挥发分">{{ formatNum(humanBaselinePlan.predictedVolatile) }}</el-descriptions-item>
+          <el-descriptions-item label="加权热值">{{ formatNum(humanBaselinePlan.predictedCalorific) }}</el-descriptions-item>
+          <el-descriptions-item label="入选煤种">{{ (humanBaselinePlan.items || []).length }}</el-descriptions-item>
+        </el-descriptions>
+
+        <div class="material-list mb">
+          <div
+            v-for="(item, index) in humanBaselinePlan.items || []"
+            :key="`baseline-${item.coalId || index}`"
+            class="material-row"
+          >
+            <div class="material-main">
+              <span class="material-name">{{ item.coalName || `煤种${item.coalId || index + 1}` }}</span>
+              <el-tag size="small" effect="plain">{{ ratioText(item.ratio) }}</el-tag>
+              <el-tag size="small" type="info" effect="plain">综合分 {{ formatNum(item.experienceScore) }}</el-tag>
+            </div>
+            <div class="material-grid">
+              <span>煤种编号：{{ item.coalCode || '—' }}</span>
+              <span>单价：{{ formatNum(item.purchasePrice) }} 元/吨</span>
+              <span>灰分：{{ formatNum(item.ash) }}</span>
+              <span>硫分：{{ formatNum(item.sulfur) }}</span>
+              <span>水分：{{ formatNum(item.moisture) }}</span>
+              <span>热值：{{ formatNum(item.calorific) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <el-alert
+          v-if="!humanBaselinePlan.hardConstraintsPassed && (humanBaselinePlan.violations || []).length"
+          type="error"
+          :closable="false"
+          show-icon
+          class="mb"
+          title="人工经验方案未通过订单硬约束"
+        >
+          <template #default>
+            <ul class="violation-list">
+              <li v-for="(v, idx) in humanBaselinePlan.violations" :key="idx">{{ v }}</li>
+            </ul>
+          </template>
+        </el-alert>
+
+        <el-alert
+          v-if="humanBaselineCostDelta"
+          :type="humanBaselineCostDelta.savedPerTon > 0 ? 'success' : 'warning'"
+          :closable="false"
+          show-icon
+          class="mb"
+          :title="humanBaselineCostDelta.savedPerTon > 0
+            ? `相较人工经验方案，系统推荐方案吨煤成本下降 ${humanBaselineCostDelta.savedPerTon.toFixed(2)} 元（${humanBaselineCostDelta.savedPercent.toFixed(2)}%）`
+            : `本次系统推荐方案吨煤成本未优于人工经验基线（差值 ${humanBaselineCostDelta.savedPerTon.toFixed(2)} 元）`"
+        />
+      </el-card>
+
+      <el-card v-else-if="humanBaselinePlan && !humanBaselinePlan.generated" shadow="never" class="panel">
+        <template #header>
+          <div class="panel-head">
+            <span>人工经验对照方案（基线）</span>
+            <el-tag type="warning" effect="plain">未能生成</el-tag>
+          </div>
+        </template>
+        <el-empty :description="humanBaselinePlan.errorMessage || '人工经验基线未能生成对照方案'" />
+      </el-card>
+
       <div class="candidate-work-grid">
         <el-card shadow="never" class="panel">
           <template #header>
@@ -615,6 +720,24 @@ const recommendedDecision = computed(() =>
   resultDecisionStatus.value || decisionStatus(recommendedPlan.value?.plan),
 )
 const recommendedMetrics = computed(() => firstDetailMetrics(recommendedPlan.value?.details || []))
+
+const humanBaselinePlan = computed(() => result.value?.humanBaselinePlan || null)
+const humanBaselineCostDelta = computed(() => {
+  const baseline = humanBaselinePlan.value
+  const recommendedCostPerTon = recommendedPlan.value?.plan?.objectiveCostPerTon
+  if (!baseline?.costPerTon || !recommendedCostPerTon) return null
+  const baselineCost = Number(baseline.costPerTon)
+  const recommendedCost = Number(recommendedCostPerTon)
+  if (!isFinite(baselineCost) || !isFinite(recommendedCost) || baselineCost <= 0) return null
+  const saved = baselineCost - recommendedCost
+  return {
+    baselineCostPerTon: baselineCost,
+    recommendedCostPerTon: recommendedCost,
+    savedPerTon: saved,
+    savedPercent: (saved / baselineCost) * 100,
+  }
+})
+
 const candidateMaterialRows = computed(() =>
   (result.value?.candidateMaterials || []).map((row, index) => ({
     ...row,
@@ -1821,6 +1944,16 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 8px;
   max-width: 100%;
+}
+
+.violation-list {
+  margin: 4px 0 0;
+  padding-left: 20px;
+  color: #c0392b;
+}
+
+.violation-list li + li {
+  margin-top: 4px;
 }
 
 .material-row,
