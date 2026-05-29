@@ -736,6 +736,56 @@ const humanBaselineCostDelta = computed(() => {
   }
 })
 
+const recommendedScoreRow = computed(() => {
+  const plan = recommendedPlan.value?.plan
+  if (!plan) return null
+  return {
+    rowKey: 'recommended-plan',
+    candidateSource: 'recommended',
+    candidateSourceLabel: '系统推荐',
+    planCode: plan.planCode || '推荐方案',
+    planName: '系统推荐方案',
+    decisionStatus: recommendedDecision.value,
+    decisionStatusLabel: decisionLabel(recommendedDecision.value),
+    totalCost: numberOrNull(plan.totalCost),
+    qualityScore: numberOrNull(plan.qualityScore),
+    costScore: numberOrNull(plan.costScore),
+    stabilityScore: numberOrNull(plan.stabilityScore),
+    overallScore: numberOrNull(plan.overallScore),
+    objectiveCostPerTon: numberOrNull(plan.objectiveCostPerTon),
+    objectiveQualityDeviation: numberOrNull(plan.objectiveQualityDeviation),
+    objectiveExecutionRisk: numberOrNull(plan.objectiveExecutionRisk),
+    ...recommendedMetrics.value,
+  }
+})
+
+const humanBaselineScoreRow = computed(() => {
+  const plan = humanBaselinePlan.value
+  if (!plan?.generated) return null
+  return {
+    rowKey: 'human-baseline',
+    candidateSource: 'human',
+    candidateSourceLabel: '人工经验',
+    planCode: '人工经验',
+    planName: '人工经验方案',
+    decisionStatus: plan.decisionStatus || (plan.hardConstraintsPassed ? 'FEASIBLE' : 'INFEASIBLE'),
+    decisionStatusLabel: plan.decisionStatusLabel || (plan.hardConstraintsPassed ? '可执行' : '不可执行'),
+    totalCost: numberOrNull(plan.totalCost),
+    qualityScore: numberOrNull(plan.qualityScore),
+    costScore: numberOrNull(plan.costScore),
+    stabilityScore: numberOrNull(plan.stabilityScore),
+    overallScore: numberOrNull(plan.overallScore),
+    objectiveCostPerTon: numberOrNull(plan.objectiveCostPerTon ?? plan.costPerTon),
+    objectiveQualityDeviation: numberOrNull(plan.objectiveQualityDeviation),
+    objectiveExecutionRisk: numberOrNull(plan.objectiveExecutionRisk),
+    predictedAsh: numberOrNull(plan.predictedAsh),
+    predictedSulfur: numberOrNull(plan.predictedSulfur),
+    predictedMoisture: numberOrNull(plan.predictedMoisture),
+    predictedVolatile: numberOrNull(plan.predictedVolatile),
+    predictedCalorific: numberOrNull(plan.predictedCalorific),
+  }
+})
+
 const candidateMaterialRows = computed(() =>
   (result.value?.candidateMaterials || []).map((row, index) => ({
     ...row,
@@ -822,15 +872,21 @@ const paretoRows = computed(() =>
   ),
 )
 
-const scoreComparisonRows = computed(() =>
-  allEvaluationRows.value.filter(
+const scoreComparisonRows = computed(() => {
+  const rows = [
+    recommendedScoreRow.value,
+    humanBaselineScoreRow.value,
+    ...allEvaluationRows.value,
+  ].filter(Boolean)
+  const deduped = distinctBy(rows, (row) => row.rowKey)
+  return deduped.filter(
     (row) =>
       row.qualityScore != null &&
       row.costScore != null &&
       row.stabilityScore != null &&
       row.overallScore != null,
-  ),
-)
+  )
+})
 
 const chartCandidateOptions = computed(() =>
   scoreComparisonRows.value.map((row, index) => ({
@@ -1529,6 +1585,8 @@ function candidateSourceLabel(source) {
   if (source === 'ai') return '大模型'
   if (source === 'hybrid') return '混合'
   if (source === 'history') return '历史方案'
+  if (source === 'human') return '人工经验'
+  if (source === 'recommended') return '系统推荐'
   return '系统枚举'
 }
 
@@ -1682,6 +1740,12 @@ function distinctBy(rows, keyFn) {
   return [...map.values()]
 }
 
+function defaultScoreChartKeys(rows) {
+  const preferred = ['recommended-plan', 'human-baseline']
+    .filter((key) => rows.some((row) => row.rowKey === key))
+  return preferred.length ? preferred : rows.slice(0, 3).map((row) => row.rowKey)
+}
+
 watch(allEvaluationRows, (rows) => {
   if (!rows.length) {
     selectedCandidate.value = null
@@ -1697,7 +1761,7 @@ watch(allEvaluationRows, (rows) => {
 watch(scoreComparisonRows, (rows) => {
   const valid = new Set(rows.map((row) => row.rowKey))
   const kept = selectedChartRowKeys.value.filter((key) => valid.has(key))
-  selectedChartRowKeys.value = kept.length ? kept : rows.slice(0, 3).map((row) => row.rowKey)
+  selectedChartRowKeys.value = kept.length ? kept : defaultScoreChartKeys(rows)
 }, { immediate: true })
 
 watch(paretoRows, () => scheduleParetoRender(), { deep: true, flush: 'post' })
