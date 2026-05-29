@@ -348,7 +348,7 @@
       <el-card v-if="humanBaselinePlan?.generated" shadow="never" class="panel">
         <template #header>
           <div class="panel-head">
-            <span>人工经验对照方案（基线）</span>
+            <span>人工经验对照方案</span>
             <div class="tag-row">
               <el-tag
                 :type="humanBaselinePlan.hardConstraintsPassed ? 'success' : 'danger'"
@@ -364,41 +364,29 @@
           </div>
         </template>
 
-        <el-alert
-          type="info"
-          :closable="false"
-          show-icon
-          class="mb"
-          title="基线算法说明"
-        >
-          <template #default>
-            <div class="plain-text">
-              该方案模拟工程师常规经验决策：① 按 0.4×热值得分 + 0.2×灰分得分 + 0.2×硫分得分 + 0.2×价格得分
-              对候选物料计算综合分；② 按综合分降序<strong>同时生成</strong> N=2（60%/40%）与
-              N=3（50%/30%/20%）两组候选；③ 仅做硬约束粗校验（灰/硫/水≤上限，热值≥下限）；
-              ④ 按"可行优先 + 方案级综合分更高 + 吨煤成本更低"择优，<strong>仅输出一个最终方案</strong>。
-              <strong>不查规则知识库、不查历史案例、不查 RAG、不做 Pareto 多目标优化、不做安全余量分级。</strong>
-              用于与系统推荐方案形成对照。
-            </div>
-          </template>
-        </el-alert>
-
         <el-descriptions :column="3" border size="small" class="mb">
-          <el-descriptions-item label="采用配比">
-            N={{ humanBaselinePlan.selectedN || (humanBaselinePlan.items || []).length }}
+          <el-descriptions-item label="方案编号">BASE-001</el-descriptions-item>
+          <el-descriptions-item label="来源">人工经验</el-descriptions-item>
+          <el-descriptions-item label="决策状态">
+            {{ humanBaselinePlan.decisionStatusLabel || (humanBaselinePlan.hardConstraintsPassed ? '可执行' : '不可执行') }}
           </el-descriptions-item>
-          <el-descriptions-item label="方案综合分">{{ formatNum(humanBaselinePlan.planScore) }}</el-descriptions-item>
-          <el-descriptions-item label="入选煤种">{{ (humanBaselinePlan.items || []).length }}</el-descriptions-item>
-          <el-descriptions-item label="单位成本">{{ formatNum(humanBaselinePlan.costPerTon) }} 元/吨</el-descriptions-item>
-          <el-descriptions-item label="总成本">{{ formatNum(humanBaselinePlan.totalCost) }} 元</el-descriptions-item>
-          <el-descriptions-item label="需求量">{{ formatNum(humanBaselinePlan.demandQuantity) }} 吨</el-descriptions-item>
-          <el-descriptions-item label="加权灰分">{{ formatNum(humanBaselinePlan.predictedAsh) }}</el-descriptions-item>
-          <el-descriptions-item label="加权硫分">{{ formatNum(humanBaselinePlan.predictedSulfur) }}</el-descriptions-item>
-          <el-descriptions-item label="加权水分">{{ formatNum(humanBaselinePlan.predictedMoisture) }}</el-descriptions-item>
-          <el-descriptions-item label="加权挥发分">{{ formatNum(humanBaselinePlan.predictedVolatile) }}</el-descriptions-item>
-          <el-descriptions-item label="加权热值">{{ formatNum(humanBaselinePlan.predictedCalorific) }}</el-descriptions-item>
-          <el-descriptions-item label="备选对比">
-            <span class="plain-text">{{ humanBaselinePlan.alternativeSummary || '—' }}</span>
+          <el-descriptions-item label="Pareto Rank">{{ humanBaselinePlan.paretoRank ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="综合评分">{{ formatNum(humanBaselinePlan.overallScore) }}</el-descriptions-item>
+          <el-descriptions-item label="质量评分">{{ formatNum(humanBaselinePlan.qualityScore) }}</el-descriptions-item>
+          <el-descriptions-item label="成本评分">{{ formatNum(humanBaselinePlan.costScore) }}</el-descriptions-item>
+          <el-descriptions-item label="稳定性评分">{{ formatNum(humanBaselinePlan.stabilityScore) }}</el-descriptions-item>
+          <el-descriptions-item label="总成本">{{ formatNum(humanBaselinePlan.totalCost) }}</el-descriptions-item>
+          <el-descriptions-item label="吨煤成本">
+            {{ formatNum(humanBaselinePlan.objectiveCostPerTon ?? humanBaselinePlan.costPerTon) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="质量偏差">{{ formatNum(humanBaselinePlan.objectiveQualityDeviation, 4) }}</el-descriptions-item>
+          <el-descriptions-item label="执行风险">{{ formatNum(humanBaselinePlan.objectiveExecutionRisk, 4) }}</el-descriptions-item>
+          <el-descriptions-item label="灰分">{{ formatNum(humanBaselinePlan.predictedAsh) }}</el-descriptions-item>
+          <el-descriptions-item label="硫分">{{ formatNum(humanBaselinePlan.predictedSulfur) }}</el-descriptions-item>
+          <el-descriptions-item label="水分">{{ formatNum(humanBaselinePlan.predictedMoisture) }}</el-descriptions-item>
+          <el-descriptions-item label="热值">{{ formatNum(humanBaselinePlan.predictedCalorific) }}</el-descriptions-item>
+          <el-descriptions-item label="主要问题" :span="3">
+            <span class="plain-text">{{ humanBaselinePlan.mainProblem || '—' }}</span>
           </el-descriptions-item>
         </el-descriptions>
 
@@ -411,7 +399,6 @@
             <div class="material-main">
               <span class="material-name">{{ item.coalName || `煤种${item.coalId || index + 1}` }}</span>
               <el-tag size="small" effect="plain">{{ ratioText(item.ratio) }}</el-tag>
-              <el-tag size="small" type="info" effect="plain">综合分 {{ formatNum(item.experienceScore) }}</el-tag>
             </div>
             <div class="material-grid">
               <span>煤种编号：{{ item.coalCode || '—' }}</span>
@@ -454,7 +441,7 @@
       <el-card v-else-if="humanBaselinePlan && !humanBaselinePlan.generated" shadow="never" class="panel">
         <template #header>
           <div class="panel-head">
-            <span>人工经验对照方案（基线）</span>
+            <span>人工经验对照方案</span>
             <el-tag type="warning" effect="plain">未能生成</el-tag>
           </div>
         </template>
