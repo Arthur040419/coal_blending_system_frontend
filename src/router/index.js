@@ -70,6 +70,12 @@ const routes = [
         meta: { title: '历史案例' },
       },
       {
+        path: 'rag',
+        name: 'Rag',
+        component: () => import('@/views/rag/RagWorkspace.vue'),
+        meta: { title: 'RAG 知识库' },
+      },
+      {
         path: 'plan-history',
         name: 'PlanHistory',
         component: () => import('@/views/plan/PlanHistoryList.vue'),
