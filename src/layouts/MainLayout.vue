@@ -77,6 +77,7 @@ const menuItems = [
   { path: '/full-chain', label: '全链路数据' },
   { path: '/rules', label: '规则知识' },
   { path: '/cases', label: '历史案例' },
+  { path: '/rag', label: 'RAG 知识库' },
   { path: '/plan-history', label: '方案追溯' },
   { path: '/model-effect', label: '模型效果' },
   { path: '/model-config', label: '模型配置' },
